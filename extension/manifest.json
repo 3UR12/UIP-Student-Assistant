@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "UIP Student Assistant",
+  "version": "0.1.2",
+  "description": "Read-only scanner for the Moodle UIP page currently open.",
+  "host_permissions": ["https://moodle.uip.edu.pa/*"],
+  "action": {
+    "default_title": "UIP Student Assistant",
+    "default_popup": "popup/popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://moodle.uip.edu.pa/*"],
+      "js": [
+        "core/state.js",
+        "core/moodle.js",
+        "core/courses.js",
+        "core/modules.js",
+        "core/activities.js",
+        "core/feedback.js",
+        "core/sanitize.js",
+        "content/content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}
