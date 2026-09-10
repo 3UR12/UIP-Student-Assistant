@@ -1,6 +1,6 @@
 # License decision pending
 
-No license is included in v0.1.0 because the repository is private and the project owner has not selected redistribution terms.
+No license is included in v0.1.1 because the repository is private and the project owner has not selected redistribution terms.
 
 Before making the project public, the owner should choose intentionally:
 
