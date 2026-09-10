@@ -15,32 +15,70 @@
     return Boolean(document.querySelector('form#login, form[action*="login"], input[type="password"]'));
   };
 
+  core.firstVisibleMatch = function firstVisibleMatch(document, selectors) {
+    for (const selector of selectors) {
+      const candidate = document.querySelector(selector);
+      if (candidate && core.isDomVisible(candidate)) return candidate;
+    }
+    return null;
+  };
+
+  core.findMainContent = function findMainContent(document) {
+    return core.firstVisibleMatch(document, ['[data-region="course-content"]', '#region-main', '[role="main"]', 'main']);
+  };
+
+  core.findDashboardScope = function findDashboardScope(document) {
+    return core.firstVisibleMatch(document, ['#region-main', '[role="main"]', 'main', '[data-region="courses-view"]', '[data-region="course-list"]', '.block_myoverview']);
+  };
+
   core.currentCourse = function currentCourse(document, pageType) {
     if (pageType !== "COURSE" && pageType !== "SECTION" && pageType !== "FEEDBACK") return null;
     if (pageType === "COURSE") {
       const name = core.text(document.querySelector(core.selectors.courseName), 300);
       const url = core.canonicalMoodleUrl(document.location.href, document.location.href, "/course/view.php");
-      return { id: core.idFromUrl(url, document.location.href), name: name || null, url };
+      return { id: core.idFromUrl(url, document.location.href), name: name || null, rawName: name || null, displayName: null, url };
     }
     const link = document.querySelector(core.selectors.courseBreadcrumbLinks) || document.querySelector(core.selectors.courseLinks);
     const url = link && core.canonicalMoodleUrl(link.getAttribute("href"), document.location.href, "/course/view.php");
-    if (!url) return { id: null, name: null, url: null };
-    return { id: core.idFromUrl(url, document.location.href), name: core.text(link, 300), url };
+    if (!url) return { id: null, name: null, rawName: null, displayName: null, url: null };
+    const name = core.text(link, 160);
+    return { id: core.idFromUrl(url, document.location.href), name, rawName: name, displayName: null, url };
   };
 
   core.scanDocument = function scanDocument(document) {
     const errors = [];
     const pageType = core.detectPageType(document);
-    let courses = []; let modules = []; let activities = []; let feedback = [];
-    try { courses = core.scanCourses(document, errors); } catch (_) { core.captureError(errors, "courses"); }
-    try { modules = core.scanModules(document, errors); } catch (_) { core.captureError(errors, "modules"); }
-    try { activities = core.scanActivities(document, errors); } catch (_) { core.captureError(errors, "activities"); }
+    let courses = []; let modules = []; let activities = []; let feedback = []; let currentSection = null; let feedbackPage = null;
+    const mainScope = core.findMainContent(document);
+    try {
+      if (pageType === "AREA_PERSONAL") courses = core.scanCourses(core.findDashboardScope(document), document, errors);
+    } catch (_) { core.captureError(errors, "courses"); }
+    try {
+      if (pageType === "COURSE" && mainScope) modules = core.scanModules(mainScope, document, errors);
+      if (pageType === "SECTION" && mainScope) {
+        const sectionScope = core.findCurrentSection(document, mainScope);
+        const sectionId = core.idFromUrl(document.location.href, document.location.href);
+        if (sectionScope) {
+          modules = core.scanModules(sectionScope, document, errors, sectionId);
+          currentSection = modules[0] || null;
+          activities = core.scanActivities(sectionScope, document, errors);
+        }
+      }
+    } catch (_) { core.captureError(errors, "modules"); }
+    try {
+      if (pageType === "AREA_PERSONAL") activities = core.scanActivities(core.findDashboardScope(document), document, errors);
+      if (pageType === "COURSE" && mainScope) activities = core.scanActivities(mainScope, document, errors);
+      if (pageType === "FEEDBACK" && mainScope) {
+        feedbackPage = core.feedbackPageContext(document, mainScope);
+        activities = feedbackPage ? [{ id: feedbackPage.id, name: feedbackPage.name, type: "feedback", url: feedbackPage.url, completionState: feedbackPage.completionState, available: feedbackPage.available, restrictionText: null, position: 1, required: null }] : [];
+      }
+    } catch (_) { core.captureError(errors, "activities"); }
     try { feedback = core.findFeedback(activities, document, errors); } catch (_) { core.captureError(errors, "feedback"); }
     const completedFeedback = feedback.filter((item) => item.completionState === "completed").length;
     return {
       scannerVersion: core.VERSION, pageType,
       sessionApparentlyNotStarted: core.isApparentlyLoggedOut(document),
-      course: core.currentCourse(document, pageType), courses, modules, activities, feedback,
+      course: core.currentCourse(document, pageType), currentSection, feedbackPage, courses, modules, activities, feedback,
       summary: {
         courses: courses.length, modules: modules.length, activities: activities.length, feedback: feedback.length,
         feedbackCompleted: completedFeedback,

@@ -1,10 +1,12 @@
 /* Dashboard course-card extraction. Only visible links are reported. */
 (function attachCourses(global) {
   const core = global.UIPScannerCore = global.UIPScannerCore || {};
-  core.scanCourses = function scanCourses(document, errors) {
+  core.scanCourses = function scanCourses(scope, document, errors) {
+    if (!scope) return [];
     const found = new Map();
-    document.querySelectorAll(core.selectors.courseLinks).forEach((link) => {
+    scope.querySelectorAll(core.selectors.courseLinks).forEach((link) => {
       try {
+        if (core.isExcludedRegion(link)) return;
         const url = core.canonicalMoodleUrl(link.getAttribute("href"), document.location.href, "/course/view.php");
         const id = core.idFromUrl(url, document.location.href);
         if (!url || !id || found.has(id)) return;

@@ -2,16 +2,16 @@
 (function attachState(global) {
   const core = global.UIPScannerCore = global.UIPScannerCore || {};
 
-  core.VERSION = "0.1.0";
+  core.VERSION = "0.1.1";
   core.selectors = {
     courseLinks: 'a[href*="/course/view.php"]',
     courseBreadcrumbLinks: '#page-navbar a[href*="/course/view.php"], .breadcrumb a[href*="/course/view.php"], nav[aria-label="breadcrumb"] a[href*="/course/view.php"]',
     sectionLinks: 'a[href*="/course/section.php?id="]',
     activityLinks: 'a[href*="/mod/"]',
-    sectionContainers: '[data-for="course_section"], .course-section, li.section, .section',
+    sectionContainers: '[data-for="course_section"], [data-sectionid], .course-section, li[id^="section-"], .section[id^="section-"]',
     activityContainers: '.activity, [data-activityname], [data-activity-id]',
     restricted: '.availabilityinfo, .availability, .restricted, [data-availability], .dimmed',
-    completion: '.completioninfo, .completion-status, [data-completion]',
+    completion: '.completioninfo, .completion-status, [data-completion], [data-for="completioninfo"], [data-region="completion"]',
     courseName: '.coursename, .course-title, [data-region="course-content"] h1, #page-header h1, h1'
   };
 
@@ -51,6 +51,10 @@
     try { return element && element.closest(selector); } catch (_) { return null; }
   };
 
+  core.isExcludedRegion = function isExcludedRegion(element) {
+    return Boolean(core.closest(element, 'nav, aside, footer, #page-footer, #page-navbar, .block, .sidebar, .drawer, [data-region="drawer"], [data-region="courseindex"]'));
+  };
+
   core.isDomVisible = function isDomVisible(element) {
     if (!element) return false;
     let current = element;
@@ -82,10 +86,11 @@
   core.completionFor = function completionFor(element) {
     if (!element) return "unknown";
     const node = element.querySelector(core.selectors.completion);
-    const aria = node && node.getAttribute("aria-label");
-    const classes = String((node && node.className) || element.className || "").toLowerCase();
-    if (/\b(completed|complete|done)\b/.test(String(aria || "").toLowerCase()) || /\b(completed|complete)\b/.test(classes)) return "completed";
-    if (/\b(incomplete|notcompleted|todo)\b/.test(String(aria || "").toLowerCase()) || /\b(incomplete|notcompleted)\b/.test(classes)) return "incomplete";
+    if (!node) return "unknown";
+    const evidence = [node.getAttribute && node.getAttribute("aria-label"), core.text(node, 200), node.className]
+      .filter(Boolean).join(" ").toLowerCase();
+    if (/\b(hecho|completado|completed|complete|done)\b/.test(evidence)) return "completed";
+    if (/\b(por hacer|pendiente|incomplete|notcompleted|todo)\b/.test(evidence)) return "incomplete";
     return "unknown";
   };
 
