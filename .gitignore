@@ -1,0 +1,16 @@
+# Local configuration and diagnostic material
+.env
+.env.*
+*.log
+diagnostics/
+private/
+temp/
+tmp/
+screenshots/
+test-data/private/
+
+# OS/editor files that can carry local state
+desktop.ini
+Thumbs.db
+.DS_Store
+.vscode/
