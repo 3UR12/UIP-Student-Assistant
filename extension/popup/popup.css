@@ -10,6 +10,13 @@ button:disabled { cursor: wait; opacity: .65; }
 .secondary { background: #56647a; margin-top: 12px; }
 .secondary:hover { background: #414c5d; }
 #summary { margin-top: 14px; font-size: 13px; line-height: 1.55; }
+.assistant { border-top: 1px solid #d7deea; margin-top: 14px; padding-top: 14px; }
+.assistant h2 { font-size: 15px; margin: 0 0 8px; }
+.assistant p, .assistant label, .assistant select { font-size: 13px; }
+.assistant label { display: block; font-weight: 600; margin: 10px 0 5px; }
+.assistant select { box-sizing: border-box; padding: 8px; width: 100%; }
+.assistant button { margin-top: 10px; }
+.assistant-status { color: #445268; min-height: 18px; }
 #summary dl { display: grid; grid-template-columns: 1fr auto; gap: 4px 14px; margin: 8px 0; }
 #summary dt, #summary dd { margin: 0; }
 details { margin-top: 12px; }

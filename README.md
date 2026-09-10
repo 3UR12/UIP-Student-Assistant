@@ -1,12 +1,12 @@
 # UIP Student Assistant
 
-UIP Student Assistant is a small, read-only browser extension for inspecting the Moodle UIP page the student already has open. Version 0.1.2 is a scanner: it identifies the current Moodle page and, where the visible DOM permits it, summarizes courses, sections, activities, and Moodle Feedback activities.
+UIP Student Assistant is a small browser extension for inspecting the Moodle UIP page the student already has open. Version 0.2.0 preserves the scanner and adds a Feedback Assistant that can locally preselect a user-chosen rating in compatible radio questions on an already-open Feedback response form.
 
-It does not log anyone in, submit forms, click Moodle controls, change Moodle data, use a backend, or send data anywhere.
+It does not log anyone in, submit forms, click Moodle submit controls, navigate Moodle, use a backend, or send data anywhere. A student must open the Feedback response form manually and manually review and submit any responses.
 
 ## Current scope
 
-The extension works on `https://moodle.uip.edu.pa/*` and scans only the active page when the user selects **Escanear página actual** in the popup. Detection is intentionally conservative: unknown or unproven availability/completion states remain `null` or `unknown` rather than being guessed. It does not navigate to courses or load unpublished dashboard items.
+The extension works on `https://moodle.uip.edu.pa/*` and scans only the active page when the user selects **Escanear página actual** in the popup. On `/mod/feedback/complete.php`, it can inspect the scoped form and—only after an explicit user-selected rating and button press—set compatible, unanswered radio controls locally. It never submits the form. Detection is intentionally conservative: unknown or unproven availability/completion states remain `null` or `unknown` rather than being guessed.
 
 ## Development installation
 
@@ -20,7 +20,7 @@ See [docs/TESTING.md](docs/TESTING.md) for the complete manual test procedure.
 
 ## Privacy
 
-The scanner uses the browser's existing Moodle session only to read the rendered DOM. It does not access passwords, cookies, tokens, form values, private messages, or full page HTML; it keeps results in popup memory only. Diagnostic JSON is explicitly sanitized before it can be copied. There are no analytics, external requests, databases, or servers. Details are in [docs/SECURITY.md](docs/SECURITY.md).
+The scanner uses the browser's existing Moodle session only to read the rendered DOM. The Feedback Assistant reads only scoped radio option labels/values needed for local preselection; it does not access passwords, cookies, tokens, hidden fields, text responses, private messages, or full page HTML. Results and the selected preference remain in popup memory only. Diagnostic JSON is explicitly sanitized before it can be copied. There are no analytics, external requests, databases, or servers. Details are in [docs/SECURITY.md](docs/SECURITY.md).
 
 ## Architecture
 
