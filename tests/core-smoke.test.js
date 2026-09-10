@@ -146,6 +146,7 @@ const feedbackDocument = {
 };
 const feedbackPage = core.feedbackPageContext(feedbackDocument, feedbackScope);
 assert.equal(feedbackPage.id, "2059248");
+assert.equal(feedbackPage.name, "Envíanos tu Opinión3");
 assert.equal(feedbackPage.responseUrl, "https://moodle.uip.edu.pa/mod/feedback/complete.php?id=2059248");
 assert.equal(feedbackPage.canRespond, true);
 assert.equal(feedbackPage.completionState, "incomplete");
@@ -154,6 +155,9 @@ const activitySpecificHeading = node({}, "Envíanos tu Opinión3");
 const genericCourseHeading = node({}, "Nombre completo del curso");
 assert.equal(core.activityPageName({ querySelector: () => null }, { querySelector: () => activitySpecificHeading }), "Envíanos tu Opinión3");
 assert.equal(core.activityPageName({ querySelector: () => null, genericCourseHeading }, { querySelector: () => null }), null);
+const completionBreadcrumb = node({}, "Por hacer: Enviar retroalimentación");
+assert.equal(core.activityPageName({ querySelector: () => completionBreadcrumb }, { querySelector: () => null }), null);
+assert.equal(core.activityPageName({ querySelector: () => null }, { querySelector: () => null }), null);
 
 const completionNode = { textContent: "Hecho: Enviar retroalimentación", className: "", getAttribute: () => null };
 assert.equal(core.completionFor({ querySelector: () => completionNode }), "completed");
@@ -246,6 +250,24 @@ const formQuestion = (text) => ({
   textContent: "", style: {}, parentElement: null, getAttribute: () => null,
   querySelector: () => ({ textContent: text, getAttribute: () => null })
 });
+const requiredIndicator = (attributes) => ({ tagName: "I", textContent: "Campo obligatorio", getAttribute: (name) => attributes[name] || null });
+const requiredInput = { required: false, getAttribute: () => null };
+const questionTextNode = { nodeType: 3, textContent: "La calidad del contenido del tema fue..." };
+const requiredIcon = requiredIndicator({ title: "Campo obligatorio" });
+const questionLabelWithIndicator = { tagName: "DIV", childNodes: [questionTextNode, requiredIcon], getAttribute: () => null };
+const requiredQuestionContainer = {
+  getAttribute: () => null,
+  querySelector: () => questionLabelWithIndicator,
+  querySelectorAll: () => [requiredIcon]
+};
+assert.equal(core.feedbackQuestionLabel(requiredQuestionContainer), "La calidad del contenido del tema fue...");
+assert.equal(core.feedbackRequired([requiredInput], requiredQuestionContainer), true);
+const ariaRequiredIcon = requiredIndicator({ "aria-label": "Campo obligatorio" });
+assert.equal(core.feedbackRequired([requiredInput], { getAttribute: () => null, querySelectorAll: () => [ariaRequiredIcon] }), true);
+const redIconWithoutText = { tagName: "I", className: "text-danger", getAttribute: () => null };
+assert.equal(core.feedbackRequired([requiredInput], { getAttribute: () => null, querySelectorAll: () => [redIconWithoutText] }), null);
+assert.equal(core.feedbackRequired([requiredInput], { getAttribute: () => null, querySelectorAll: () => [] }), null);
+assert.equal(core.feedbackQuestionLabel({ querySelector: () => ({ textContent: "Pregunta literal <i class=\"icon\" title=\"Campo obligatorio\"></i>", getAttribute: () => null }) }), "Pregunta literal");
 const events = [];
 const formInputs = [];
 const syntheticInput = (name, id, value, question, options) => {

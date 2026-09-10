@@ -5,6 +5,24 @@
   const signatureLimit = 8192;
   const normalize = (value) => typeof value === "string" ? value.replace(/\s+/g, " ").trim().toLocaleLowerCase() : "";
   const labelText = (node) => core.text(node, labelLimit);
+  const requiredEvidence = (value) => /\b(campo obligatorio|obligatorio|required|mandatory)\b/i.test(typeof value === "string" ? value : "");
+
+  const questionText = (node) => {
+    if (!node) return null;
+    const read = (current, isRoot) => {
+      if (!current) return "";
+      if (current.nodeType === 3) return current.textContent || "";
+      const title = current.getAttribute && current.getAttribute("title");
+      const ariaLabel = current.getAttribute && current.getAttribute("aria-label");
+      const ariaHidden = current.getAttribute && current.getAttribute("aria-hidden");
+      const tagName = String(current.tagName || "").toLowerCase();
+      if (ariaHidden === "true" || (!isRoot && (requiredEvidence(title) || requiredEvidence(ariaLabel))) || ["i", "svg", "path", "use"].includes(tagName)) return "";
+      if (current.childNodes) return Array.from(current.childNodes).map((child) => read(child, false)).join(" ");
+      return current.textContent || "";
+    };
+    const value = read(node, true).replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+    return value ? value.slice(0, labelLimit) : null;
+  };
 
   core.isFeedbackResponsePage = function isFeedbackResponsePage(document) {
     return /^\/mod\/feedback\/complete\.php$/i.test(document.location.pathname || "") && Boolean(core.idFromUrl(document.location.href, document.location.href));
@@ -28,12 +46,14 @@
 
   core.feedbackQuestionLabel = function feedbackQuestionLabel(container) {
     if (!container) return null;
-    return labelText(container.querySelector('legend, .questiontext, .feedback_item_label, [data-region="question-label"], label'));
+    return questionText(container.querySelector('[data-region="question-label"], .questiontext, .feedback_item_label, legend, label'));
   };
 
   core.feedbackRequired = function feedbackRequired(inputs, container) {
     if (inputs.some((input) => input.required === true || input.getAttribute("aria-required") === "true")) return true;
     if (container && (container.getAttribute("aria-required") === "true" || container.getAttribute("data-required") === "true")) return true;
+    const indicators = container && container.querySelectorAll ? Array.from(container.querySelectorAll("[title], [aria-label]")) : [];
+    if (indicators.some((indicator) => requiredEvidence(indicator.getAttribute("title")) || requiredEvidence(indicator.getAttribute("aria-label")))) return true;
     return null;
   };
 
