@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "UIP Student Assistant",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Read-only scanner for the Moodle UIP page currently open.",
   "host_permissions": ["https://moodle.uip.edu.pa/*"],
   "action": {

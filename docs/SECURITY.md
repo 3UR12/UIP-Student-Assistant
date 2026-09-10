@@ -1,6 +1,6 @@
 # Security and privacy
 
-UIP Student Assistant v0.1.1 is a read-only, local DOM scanner.
+UIP Student Assistant v0.1.2 is a read-only, local DOM scanner.
 
 ## What it does not do
 

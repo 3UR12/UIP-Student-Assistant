@@ -37,6 +37,10 @@
           setStatus("No estás en Moodle o la página aún no está lista.");
           return;
         }
+        if (!globalThis.UIPScannerCore.isCompatibleScan(response.scan)) {
+          setStatus("La extensión fue actualizada. Recarga la pestaña de Moodle y vuelve a escanear.");
+          return;
+        }
         render(response.scan);
       });
     });

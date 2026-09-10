@@ -1,6 +1,6 @@
 # UIP Student Assistant
 
-UIP Student Assistant is a small, read-only browser extension for inspecting the Moodle UIP page the student already has open. Version 0.1.1 is a scanner: it identifies the current Moodle page and, where the visible DOM permits it, summarizes courses, sections, activities, and Moodle Feedback activities.
+UIP Student Assistant is a small, read-only browser extension for inspecting the Moodle UIP page the student already has open. Version 0.1.2 is a scanner: it identifies the current Moodle page and, where the visible DOM permits it, summarizes courses, sections, activities, and Moodle Feedback activities.
 
 It does not log anyone in, submit forms, click Moodle controls, change Moodle data, use a backend, or send data anywhere.
 
