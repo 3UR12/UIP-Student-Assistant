@@ -6,7 +6,7 @@ UIP Student Assistant v0.3.0 is a local DOM scanner with limited Feedback radio-
 
 - It never asks for, stores, reads, or transmits credentials.
 - It does not read cookies, tokens, `sesskey`, login form values, private messages, avatars, or full Moodle HTML.
-- It does not write text, fabricate requests, or modify Moodle outside the response form currently open. With an explicit popup action it may set only compatible unanswered radios. Only after a separate review and confirmation may it click one visible, enabled, uniquely identified Moodle `type=submit` control in that same revalidated form. A detected Moodle Continue link similarly needs its own explicit, revalidated action.
+- It does not write text, fabricate requests, or modify Moodle outside the response form currently open. With an explicit popup action it may set only compatible unanswered radios. Only after a separate review and confirmation may it click one visible, enabled, uniquely identified Moodle `type=submit` control in that same revalidated form. A detected Moodle Continue anchor or GET form-submit control similarly needs its own explicit, revalidated action; hidden form fields are never inspected.
 - It does not use `fetch`, external services, AI APIs, analytics, telemetry, a backend, cloud storage, or a database.
 - It does not take screenshots or save scans locally.
 

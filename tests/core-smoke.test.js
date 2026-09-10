@@ -436,6 +436,9 @@ assert.equal(readySubmission.answeredSupportedQuestions, 7);
 assert.equal(readySubmission.unsupportedQuestions, 0);
 assert.equal(readySubmission.submitControl.unique, true);
 assert.equal(readySubmission.readyToSubmit, true);
+const editableResponseContext = core.feedbackPageContext(readyFixture.document, { querySelector: () => null, querySelectorAll: () => [] });
+assert.equal(editableResponseContext.canRespond, true);
+assert.equal(editableResponseContext.responseUrl, "https://moodle.uip.edu.pa/mod/feedback/complete.php?id=2059248");
 assert.equal(core.scanDocument(readyFixture.document).feedbackSubmission.readyToSubmit, true);
 assert.deepEqual(readyFixture.clicks, []);
 const prefillDoesNotSubmitFixture = makeSubmissionFixture();
@@ -500,7 +503,7 @@ const continueLink = makeLink("/course/view.php?id=8199", "Continuar");
 const navigationScope = { querySelectorAll: () => [continueLink], contains: (link) => link === continueLink };
 const continueAction = core.inspectContinueAction(navigationDocument, navigationScope);
 assert.equal(continueAction.unique, true);
-assert.equal(core.navigateContinue(navigationDocument, navigationScope, { url: continueAction.url, signature: continueAction.signature }).navigationTriggered, true);
+assert.equal(core.navigateContinue(navigationDocument, navigationScope, { kind: continueAction.kind, signature: continueAction.signature }).navigationTriggered, true);
 assert.equal(continueLink.clickCount, 1);
 const externalScope = { querySelectorAll: () => [makeLink("https://example.com/course/view.php?id=1", "Continuar"), makeLink("javascript:alert(1)", "Continuar")], contains: () => true };
 assert.equal(core.inspectContinueAction(navigationDocument, externalScope).detected, false);
@@ -510,7 +513,7 @@ const staleContinueLink = makeLink("/course/view.php?id=8199", "Continuar");
 const staleContinueScope = { querySelectorAll: () => [staleContinueLink], contains: () => true };
 const staleContinueAction = core.inspectContinueAction(navigationDocument, staleContinueScope);
 staleContinueLink.getAttribute = (name) => name === "href" ? "/course/view.php?id=8200" : null;
-assert.equal(core.navigateContinue(navigationDocument, staleContinueScope, { url: staleContinueAction.url, signature: staleContinueAction.signature }).navigationTriggered, false);
+assert.equal(core.navigateContinue(navigationDocument, staleContinueScope, { kind: staleContinueAction.kind, signature: staleContinueAction.signature }).navigationTriggered, false);
 assert.equal(staleContinueLink.clickCount, 0);
 
 const confirmationDocument = { location: { href: "https://moodle.uip.edu.pa/mod/feedback/view.php?id=2059248", pathname: "/mod/feedback/view.php" }, querySelectorAll: () => [] };
@@ -535,4 +538,118 @@ const navigatorDiagnostic = core.sanitizeDiagnostic({ scannerVersion: core.VERSI
 assert.equal(JSON.stringify(navigatorDiagnostic).includes("safe-internal-signature"), false);
 assert.equal(JSON.stringify(navigatorDiagnostic).includes("internal-link-signature"), false);
 assert.equal(JSON.stringify(navigatorDiagnostic).includes("sesskey"), false);
+
+const breadcrumbFeedbackLink = (id, name) => ({ textContent: name, style: {}, parentElement: null, getAttribute: (attribute) => attribute === "href" ? `/mod/feedback/view.php?id=${id}` : null });
+const completionEvidence = { textContent: "Hecho: Enviar retroalimentación", className: "", getAttribute: () => null };
+const postSubmitBreadcrumb = breadcrumbFeedbackLink("2059248", "Envíanos tu Opinión3");
+const postSubmitDocument = {
+  location: { href: "https://moodle.uip.edu.pa/mod/feedback/complete.php", pathname: "/mod/feedback/complete.php", origin: "https://moodle.uip.edu.pa" },
+  querySelectorAll(selector) { return selector.includes("breadcrumb") || selector.includes("page-navbar") ? [postSubmitBreadcrumb] : []; }
+};
+const postSubmitScope = {
+  querySelector: () => ({ className: "alert-success", getAttribute: () => null }),
+  querySelectorAll: (selector) => selector === core.selectors.completion ? [completionEvidence] : []
+};
+const recoveredContext = core.feedbackPageContext(postSubmitDocument, postSubmitScope);
+assert.equal(recoveredContext.id, "2059248");
+assert.equal(recoveredContext.name, "Envíanos tu Opinión3");
+assert.equal(recoveredContext.url, "https://moodle.uip.edu.pa/mod/feedback/view.php?id=2059248");
+assert.equal(recoveredContext.canRespond, false);
+assert.equal(recoveredContext.responseUrl, null);
+const recoveredResult = core.inspectFeedbackResult(postSubmitDocument, postSubmitScope, recoveredContext);
+assert.equal(recoveredResult.state, "completed");
+assert.equal(recoveredResult.submissionVerified, true);
+const sameBreadcrumbDocument = { ...postSubmitDocument, querySelectorAll: (selector) => selector.includes("breadcrumb") || selector.includes("page-navbar") ? [postSubmitBreadcrumb, breadcrumbFeedbackLink("2059248", "Envíanos tu Opinión3")] : [] };
+assert.equal(core.resolveFeedbackContext(sameBreadcrumbDocument).id, "2059248");
+const ambiguousBreadcrumbDocument = { ...postSubmitDocument, querySelectorAll: (selector) => selector.includes("breadcrumb") || selector.includes("page-navbar") ? [postSubmitBreadcrumb, breadcrumbFeedbackLink("2059260", "Envíanos tu Opinión4")] : [] };
+assert.equal(core.resolveFeedbackContext(ambiguousBreadcrumbDocument), null);
+const noBreadcrumbDocument = { ...postSubmitDocument, querySelectorAll: () => [] };
+assert.equal(core.resolveFeedbackContext(noBreadcrumbDocument), null);
+const completeWithIdDocument = { ...postSubmitDocument, location: { href: "https://moodle.uip.edu.pa/mod/feedback/complete.php?id=2059248", pathname: "/mod/feedback/complete.php", origin: "https://moodle.uip.edu.pa" }, querySelectorAll: () => [] };
+assert.equal(core.resolveFeedbackContext(completeWithIdDocument).id, "2059248");
+assert.equal(core.inspectFeedbackResult(readyFixture.document, null, { id: "2059248", completionState: "unknown" }).state, "still-editable");
+
+const makeContinueButtonFixture = () => {
+  const clicks = [];
+  const hidden = { type: "hidden" };
+  Object.defineProperty(hidden, "value", { get() { throw new Error("hidden value must never be read"); } });
+  const form = {
+    attributes: { method: "get", action: "https://moodle.uip.edu.pa/course/view.php" },
+    getAttribute(name) { return this.attributes[name] || null; },
+    contains(element) { return element === button || element === hidden; },
+    submit() { throw new Error("continue form.submit must not be invoked"); },
+    requestSubmit() { throw new Error("continue form.requestSubmit must not be invoked"); }
+  };
+  const button = {
+    tagName: "BUTTON", type: "submit", textContent: "Continuar", disabled: false, style: {}, form,
+    getAttribute(name) { return name === "type" ? "submit" : null; },
+    click() { clicks.push("continue"); }
+  };
+  const document = { location: { href: "https://moodle.uip.edu.pa/mod/feedback/complete.php", pathname: "/mod/feedback/complete.php" } };
+  const scope = {
+    querySelectorAll(selector) { return selector === "a[href]" ? [] : [button]; },
+    contains(element) { return element === button; }
+  };
+  return { document, scope, form, button, hidden, clicks };
+};
+const continueButtonFixture = makeContinueButtonFixture();
+const continueButtonAction = core.inspectContinueAction(continueButtonFixture.document, continueButtonFixture.scope);
+assert.equal(continueButtonAction.detected, true);
+assert.equal(continueButtonAction.unique, true);
+assert.equal(continueButtonAction.kind, "form-submit");
+assert.equal(continueButtonAction.destinationPath, "/course/view.php");
+assert.equal(continueButtonAction.method, "get");
+assert.equal(continueButtonAction.url, null);
+assert.equal(core.navigateContinue(continueButtonFixture.document, continueButtonFixture.scope, { kind: continueButtonAction.kind, signature: continueButtonAction.signature }).navigationTriggered, true);
+assert.deepEqual(continueButtonFixture.clicks, ["continue"]);
+const disabledContinueFixture = makeContinueButtonFixture();
+disabledContinueFixture.button.disabled = true;
+assert.equal(core.inspectContinueAction(disabledContinueFixture.document, disabledContinueFixture.scope).detected, false);
+const hiddenContinueFixture = makeContinueButtonFixture();
+hiddenContinueFixture.button.style.display = "none";
+assert.equal(core.inspectContinueAction(hiddenContinueFixture.document, hiddenContinueFixture.scope).detected, false);
+const postContinueFixture = makeContinueButtonFixture();
+postContinueFixture.form.attributes.method = "post";
+assert.equal(core.inspectContinueAction(postContinueFixture.document, postContinueFixture.scope).detected, false);
+const externalContinueFixture = makeContinueButtonFixture();
+externalContinueFixture.form.attributes.action = "https://example.com/course/view.php";
+assert.equal(core.inspectContinueAction(externalContinueFixture.document, externalContinueFixture.scope).detected, false);
+const scriptContinueFixture = makeContinueButtonFixture();
+scriptContinueFixture.form.attributes.action = "javascript:alert(1)";
+assert.equal(core.inspectContinueAction(scriptContinueFixture.document, scriptContinueFixture.scope).detected, false);
+const dataContinueFixture = makeContinueButtonFixture();
+dataContinueFixture.form.attributes.action = "data:text/html,continue";
+assert.equal(core.inspectContinueAction(dataContinueFixture.document, dataContinueFixture.scope).detected, false);
+const formactionContinueFixture = makeContinueButtonFixture();
+formactionContinueFixture.button.getAttribute = (name) => name === "type" ? "submit" : name === "formaction" ? "https://example.com/course/view.php" : null;
+assert.equal(core.inspectContinueAction(formactionContinueFixture.document, formactionContinueFixture.scope).detected, false);
+const formmethodContinueFixture = makeContinueButtonFixture();
+formmethodContinueFixture.button.getAttribute = (name) => name === "type" ? "submit" : name === "formmethod" ? "post" : null;
+assert.equal(core.inspectContinueAction(formmethodContinueFixture.document, formmethodContinueFixture.scope).detected, false);
+const ambiguousButtonFixture = makeContinueButtonFixture();
+const secondContinueButton = { ...ambiguousButtonFixture.button, click() { throw new Error("ambiguous Continue must not click"); } };
+ambiguousButtonFixture.form.contains = (element) => element === ambiguousButtonFixture.button || element === secondContinueButton || element === ambiguousButtonFixture.hidden;
+ambiguousButtonFixture.scope.querySelectorAll = (selector) => selector === "a[href]" ? [] : [ambiguousButtonFixture.button, secondContinueButton];
+ambiguousButtonFixture.scope.contains = (element) => element === ambiguousButtonFixture.button || element === secondContinueButton;
+assert.equal(core.inspectContinueAction(ambiguousButtonFixture.document, ambiguousButtonFixture.scope).unique, false);
+const mixedContinueFixture = makeContinueButtonFixture();
+const mixedAnchor = makeLink("/course/view.php?id=8199", "Continuar");
+mixedContinueFixture.scope.querySelectorAll = (selector) => selector === "a[href]" ? [mixedAnchor] : [mixedContinueFixture.button];
+mixedContinueFixture.scope.contains = (element) => element === mixedContinueFixture.button || element === mixedAnchor;
+assert.equal(core.inspectContinueAction(mixedContinueFixture.document, mixedContinueFixture.scope).unique, false);
+const changedActionFixture = makeContinueButtonFixture();
+const changedAction = core.inspectContinueAction(changedActionFixture.document, changedActionFixture.scope);
+changedActionFixture.form.attributes.action = "https://moodle.uip.edu.pa/course/section.php";
+assert.equal(core.navigateContinue(changedActionFixture.document, changedActionFixture.scope, { kind: changedAction.kind, signature: changedAction.signature }).reason, "navigation-changed");
+assert.deepEqual(changedActionFixture.clicks, []);
+const changedMethodFixture = makeContinueButtonFixture();
+const changedMethod = core.inspectContinueAction(changedMethodFixture.document, changedMethodFixture.scope);
+changedMethodFixture.form.attributes.method = "post";
+assert.equal(core.navigateContinue(changedMethodFixture.document, changedMethodFixture.scope, { kind: changedMethod.kind, signature: changedMethod.signature }).navigationTriggered, false);
+assert.deepEqual(changedMethodFixture.clicks, []);
+const formContinueDiagnostic = core.sanitizeDiagnostic({ scannerVersion: core.VERSION, pageType: "FEEDBACK", feedbackResult: { feedbackId: "2059248", state: "completed", completionState: "completed", submissionVerified: true, continueAction: continueButtonAction }, courses: [], modules: [], activities: [], feedback: [], errors: [] });
+assert.equal(formContinueDiagnostic.feedbackResult.continueAction.kind, "form-submit");
+assert.equal(formContinueDiagnostic.feedbackResult.continueAction.destinationPath, "/course/view.php");
+assert.equal(formContinueDiagnostic.feedbackResult.continueAction.method, "get");
+assert.equal(JSON.stringify(formContinueDiagnostic).includes("signature"), false);
 console.log("core smoke tests passed");

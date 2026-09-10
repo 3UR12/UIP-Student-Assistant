@@ -69,8 +69,9 @@
     const sectionText = sectionNavigation ? ` Sección actual: ${sectionNavigation.currentSectionId || "desconocida"}; anterior: ${sectionNavigation.previous && sectionNavigation.previous.id || "no detectada"}; siguiente: ${sectionNavigation.next && sectionNavigation.next.id || "no detectado"}.` : "";
     navigationSummary.textContent = `${resultText}${sectionText}`.trim();
     const action = feedbackResult && feedbackResult.continueAction;
-    if (action && action.detected && action.unique && action.url && action.signature) show(continueNavigationButton);
+    if (action && action.detected && action.unique && ["link", "form-submit"].includes(action.kind) && action.signature) show(continueNavigationButton);
     else hide(continueNavigationButton);
+    if (action && action.detected && action.unique && action.signature) navigationSummary.textContent += ` Continuación disponible · Tipo: ${action.kind === "form-submit" ? "formulario Moodle" : "enlace Moodle"} · Destino: ${action.destinationPath || "desconocido"} · Método: ${(action.method || "desconocido").toUpperCase()}.`;
     navigationStatus.textContent = "";
     show(navigation);
   }
@@ -204,12 +205,12 @@
   continueNavigationButton.addEventListener("click", () => {
     const feedbackResult = lastScan && lastScan.feedbackResult;
     const action = feedbackResult && feedbackResult.continueAction;
-    if (!feedbackResult || !action || !action.unique || !action.url || !action.signature) return;
+    if (!feedbackResult || !action || !action.unique || !["link", "form-submit"].includes(action.kind) || !action.signature) return;
     continueNavigationButton.disabled = true;
     navigationStatus.textContent = "Revalidando continuación…";
     activeTab((tab) => {
       if (!tab || !tab.id) { navigationStatus.textContent = "No se pudo acceder a la pestaña actual."; return; }
-      chrome.tabs.sendMessage(tab.id, { type: "UIP_NAVIGATE_CONTINUE", expected: { feedbackId: feedbackResult.feedbackId, url: action.url, signature: action.signature } }, (response) => {
+      chrome.tabs.sendMessage(tab.id, { type: "UIP_NAVIGATE_CONTINUE", expected: { feedbackId: feedbackResult.feedbackId, kind: action.kind, signature: action.signature } }, (response) => {
         if (chrome.runtime.lastError || !response || !response.ok) {
           navigationStatus.textContent = "Moodle puede estar navegando. Vuelve a escanear al terminar.";
           return;

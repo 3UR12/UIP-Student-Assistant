@@ -13,23 +13,39 @@
     const breadcrumbName = core.text(breadcrumb, 160);
     return breadcrumbName && !completionControlText(breadcrumbName) ? breadcrumbName : null;
   };
-  core.feedbackPageContext = function feedbackPageContext(document, scope) {
-    const current = core.canonicalActivityFromUrl(document.location.href, document.location.href);
+  core.resolveFeedbackContext = function resolveFeedbackContext(document) {
     const currentId = core.idFromUrl(document.location.href, document.location.href);
+    const current = core.canonicalActivityFromUrl(document.location.href, document.location.href);
+    if (currentId) return { id: currentId, name: null, url: current && current.type === "feedback" ? current.url : `${document.location.origin}/mod/feedback/view.php?id=${encodeURIComponent(currentId)}`, recoveredFromBreadcrumb: false };
+    if (!/^\/mod\/feedback\/complete\.php$/i.test(document.location.pathname || "") || !document.querySelectorAll) return null;
+    const candidates = new Map();
+    Array.from(document.querySelectorAll('#page-navbar a[href*="/mod/feedback/view.php"], .breadcrumb a[href*="/mod/feedback/view.php"], nav[aria-label="breadcrumb"] a[href*="/mod/feedback/view.php"]')).forEach((link) => {
+      if (!core.isDomVisible(link)) return;
+      const url = core.canonicalMoodleUrl(link.getAttribute("href"), document.location.href, "/mod/feedback/view.php");
+      const id = core.idFromUrl(url, document.location.href);
+      if (!id) return;
+      candidates.set(id, { id, name: core.text(link, 160), url, recoveredFromBreadcrumb: true });
+    });
+    return candidates.size === 1 ? Array.from(candidates.values())[0] : null;
+  };
+  core.feedbackPageContext = function feedbackPageContext(document, scope) {
+    const currentId = core.idFromUrl(document.location.href, document.location.href);
+    const context = core.resolveFeedbackContext(document);
     const isFeedbackPath = /^\/mod\/feedback\/(?:view|complete)\.php$/i.test(document.location.pathname || "");
-    if (!isFeedbackPath || !currentId) return null;
-    const url = current && current.type === "feedback" ? current.url : `${document.location.origin}/mod/feedback/view.php?id=${encodeURIComponent(currentId)}`;
+    if (!isFeedbackPath || !context) return null;
+    const url = context.url;
     const responseLink = scope && Array.from(scope.querySelectorAll('a[href*="/mod/feedback/complete.php"]')).find((link) =>
       core.isMoodlePathWithId(link.getAttribute("href"), document.location.href, "/mod/feedback/complete.php") &&
-      core.idFromUrl(link.getAttribute("href"), document.location.href) === currentId
+      core.idFromUrl(link.getAttribute("href"), document.location.href) === context.id
     );
     const currentIsResponse = /\/mod\/feedback\/complete\.php$/i.test(document.location.pathname || "");
-    const responseUrl = responseLink
+    const editableResponse = currentIsResponse && Boolean(currentId) && Boolean(core.findFeedbackResponseForm(document));
+    const responseUrl = responseLink && (!currentIsResponse || editableResponse)
       ? core.canonicalMoodleUrl(responseLink.getAttribute("href"), document.location.href, "/mod/feedback/complete.php")
-      : currentIsResponse ? core.canonicalMoodleUrl(document.location.href, document.location.href, "/mod/feedback/complete.php") : null;
-    const name = core.activityPageName(document, scope);
+      : editableResponse ? core.canonicalMoodleUrl(document.location.href, document.location.href, "/mod/feedback/complete.php") : null;
+    const name = context.name || core.activityPageName(document, scope);
     const available = core.restriction(scope, { navigable: Boolean(url) }).available;
-    return { id: currentId, name, url, completionState: core.completionFor(scope, currentId), available, required: null, position: 1, canRespond: Boolean(responseUrl && (!responseLink || core.isDomVisible(responseLink))), responseUrl };
+    return { id: context.id, name, url, completionState: core.completionFor(scope, context.id), available, required: null, position: 1, canRespond: Boolean(responseUrl && (!responseLink || core.isDomVisible(responseLink))), responseUrl };
   };
   core.findFeedback = function findFeedback(activities, _document, errors) {
     return activities.filter((activity) => activity.type === "feedback").map((activity) => {

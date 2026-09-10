@@ -54,7 +54,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type === "UIP_NAVIGATE_CONTINUE") {
     try {
       const expected = message.expected;
-      if (!expected || typeof expected.feedbackId !== "string" || expected.feedbackId.length > 80 || typeof expected.url !== "string" || expected.url.length > 500 || typeof expected.signature !== "string" || !expected.signature || expected.signature.length > 1000) {
+      if (!expected || typeof expected.feedbackId !== "string" || expected.feedbackId.length > 80 || !["link", "form-submit"].includes(expected.kind) || typeof expected.signature !== "string" || !expected.signature || expected.signature.length > 1000) {
         sendResponse({ ok: false, error: "Invalid navigation request." });
         return false;
       }
