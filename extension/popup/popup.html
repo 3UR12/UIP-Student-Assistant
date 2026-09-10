@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>UIP Student Assistant</title>
+    <link rel="stylesheet" href="popup.css">
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>UIP Student Assistant</h1>
+        <p>v0.1.0 · Moodle Scanner</p>
+      </header>
+      <p id="status" class="status">Listo para analizar la pestaña actual.</p>
+      <button id="scan" type="button">Escanear página actual</button>
+      <section id="summary" class="hidden" aria-live="polite"></section>
+      <details id="details" class="hidden">
+        <summary>Detalles detectados</summary>
+        <pre id="result"></pre>
+      </details>
+      <button id="copy" class="secondary hidden" type="button">Copiar diagnóstico sanitizado</button>
+    </main>
+    <script src="../core/state.js"></script>
+    <script src="../core/moodle.js"></script>
+    <script src="../core/courses.js"></script>
+    <script src="../core/modules.js"></script>
+    <script src="../core/activities.js"></script>
+    <script src="../core/feedback.js"></script>
+    <script src="../core/sanitize.js"></script>
+    <script src="popup.js"></script>
+  </body>
+</html>
