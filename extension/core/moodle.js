@@ -54,7 +54,7 @@
   core.scanDocument = function scanDocument(document) {
     const errors = [];
     const pageType = core.detectPageType(document);
-    let courses = []; let modules = []; let activities = []; let feedback = []; let currentSection = null; let feedbackPage = null; let feedbackForm = null;
+    let courses = []; let modules = []; let activities = []; let feedback = []; let currentSection = null; let feedbackPage = null; let feedbackForm = null; let feedbackSubmission = null; let feedbackResult = null; let sectionNavigation = null;
     const mainScope = core.findMainContent(document);
     try {
       if (pageType === "AREA_PERSONAL") courses = core.scanCourses(core.findDashboardScope(document), document, errors);
@@ -68,10 +68,12 @@
           modules = core.scanModules(sectionScope, document, errors, sectionId);
           currentSection = modules.find((module) => module.id === sectionId) || core.currentSectionFromUrl(document);
           activities = core.scanActivities(sectionScope, document, errors);
+          sectionNavigation = core.inspectSectionNavigation(document, sectionScope);
         } else {
           currentSection = core.currentSectionFromUrl(document);
           modules = currentSection ? [currentSection] : [];
           activities = core.scanActivities(mainScope, document, errors);
+          sectionNavigation = core.inspectSectionNavigation(document, mainScope);
         }
       }
     } catch (_) { core.captureError(errors, "modules"); }
@@ -84,12 +86,18 @@
       }
     } catch (_) { core.captureError(errors, "activities"); }
     try { feedback = core.findFeedback(activities, document, errors); } catch (_) { core.captureError(errors, "feedback"); }
-    try { if (core.isFeedbackResponsePage(document)) feedbackForm = core.inspectFeedbackForm(document); } catch (_) { core.captureError(errors, "feedback-form"); }
+    try {
+      if (core.isFeedbackResponsePage(document)) {
+        feedbackForm = core.inspectFeedbackForm(document);
+        feedbackSubmission = core.inspectFeedbackSubmission(document);
+      }
+      if (pageType === "FEEDBACK") feedbackResult = core.inspectFeedbackResult(document, mainScope, feedbackPage);
+    } catch (_) { core.captureError(errors, "feedback-state"); }
     const completedFeedback = feedback.filter((item) => item.completionState === "completed").length;
     return {
       scannerVersion: core.VERSION, pageType,
       sessionApparentlyNotStarted: core.isApparentlyLoggedOut(document),
-      course: core.currentCourse(document, pageType), currentSection, feedbackPage, feedbackForm, courses, modules, activities, feedback,
+      course: core.currentCourse(document, pageType), currentSection, feedbackPage, feedbackForm, feedbackSubmission, feedbackResult, sectionNavigation, courses, modules, activities, feedback,
       summary: {
         courses: courses.length, modules: modules.length, activities: activities.length, feedback: feedback.length,
         feedbackCompleted: completedFeedback,

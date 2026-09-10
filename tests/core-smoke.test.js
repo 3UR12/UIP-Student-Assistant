@@ -6,7 +6,7 @@ const vm = require("vm");
 const context = { globalThis: {}, URL, Set, Event };
 context.globalThis = context;
 vm.createContext(context);
-["state.js", "moodle.js", "courses.js", "modules.js", "activities.js", "feedback.js", "feedback-form.js", "sanitize.js"].forEach((file) => {
+["state.js", "moodle.js", "courses.js", "modules.js", "activities.js", "feedback.js", "feedback-form.js", "submission.js", "navigation.js", "sanitize.js"].forEach((file) => {
   vm.runInContext(fs.readFileSync(`extension/core/${file}`, "utf8"), context, { filename: file });
 });
 
@@ -398,4 +398,141 @@ assert.equal(JSON.stringify(formDiagnostic).includes("comment"), true);
 assert.equal(Object.hasOwn(formDiagnostic.feedbackForm, "signature"), false);
 assert.equal(formDiagnostic.feedbackForm.questions.find((item) => item.id === "comment").answered, null);
 assert.equal(formDiagnostic.feedbackForm.questions.find((item) => item.id === "consent").answered, false);
+
+const makeSubmissionFixture = () => {
+  const clicks = [];
+  const radios = Array.from({ length: 7 }, (_, index) => ({ type: "radio", name: `multichoice_${index + 1}`, id: `radio-${index + 1}`, value: `safe-radio-${index + 1}`, checked: true, disabled: false, required: false, style: {}, parentElement: formQuestion(`Pregunta ${index + 1}`), getAttribute: () => null, closest() { return this.parentElement; }, dispatchEvent() {} }));
+  const labels = radios.map((radio) => formLabel(radio.id, "Muy Bueno"));
+  const submit = { tagName: "BUTTON", type: "submit", textContent: "Enviar sus respuestas", disabled: false, style: {}, getAttribute: (name) => name === "type" ? "submit" : null, click: () => clicks.push("submit") };
+  const manual = [];
+  const form = {
+    style: {}, parentElement: null, getAttribute: () => null,
+    querySelector(selector) { return selector.includes("input") || selector.includes("textarea") ? radios[0] : null; },
+    querySelectorAll(selector) {
+      if (selector === 'input[type="radio"]') return radios;
+      if (selector === "label") return labels;
+      if (selector.includes("textarea")) return manual;
+      if (selector.includes('button[type="submit"]')) return this.submitControls || [submit];
+      return [];
+    },
+    contains(element) { return radios.includes(element) || (this.submitControls || [submit]).includes(element); },
+    submit() { throw new Error("form.submit must not be invoked"); },
+    requestSubmit() { throw new Error("form.requestSubmit must not be invoked"); }
+  };
+  form.submitControls = [submit];
+  const document = {
+    location: { href: "https://moodle.uip.edu.pa/mod/feedback/complete.php?id=2059248", pathname: "/mod/feedback/complete.php", origin: "https://moodle.uip.edu.pa" },
+    querySelector: () => null,
+    querySelectorAll: () => [form]
+  };
+  return { document, form, radios, submit, manual, clicks };
+};
+
+const readyFixture = makeSubmissionFixture();
+const readySubmission = core.inspectFeedbackSubmission(readyFixture.document);
+assert.equal(readySubmission.feedbackId, "2059248");
+assert.equal(readySubmission.supportedQuestions, 7);
+assert.equal(readySubmission.answeredSupportedQuestions, 7);
+assert.equal(readySubmission.unsupportedQuestions, 0);
+assert.equal(readySubmission.submitControl.unique, true);
+assert.equal(readySubmission.readyToSubmit, true);
+assert.equal(core.scanDocument(readyFixture.document).feedbackSubmission.readyToSubmit, true);
+assert.deepEqual(readyFixture.clicks, []);
+const prefillDoesNotSubmitFixture = makeSubmissionFixture();
+const prefillDoesNotSubmitState = core.inspectFeedbackForm(prefillDoesNotSubmitFixture.document);
+assert.equal(core.prefillFeedbackForm(prefillDoesNotSubmitFixture.document, "Muy Bueno", prefillDoesNotSubmitState.id, prefillDoesNotSubmitState.questions.length, prefillDoesNotSubmitState.signature).submitted, false);
+assert.deepEqual(prefillDoesNotSubmitFixture.clicks, []);
+const readyExpected = { feedbackId: readySubmission.feedbackId, formSignature: readySubmission.formSignature, supportedQuestions: readySubmission.supportedQuestions };
+const triggeredSubmit = core.submitFeedback(readyFixture.document, readyExpected);
+assert.equal(triggeredSubmit.submitTriggered, true);
+assert.deepEqual(readyFixture.clicks, ["submit"]);
+
+const unansweredFixture = makeSubmissionFixture();
+unansweredFixture.radios[0].checked = false;
+assert.equal(core.inspectFeedbackSubmission(unansweredFixture.document).readyToSubmit, false);
+assert.equal(core.inspectFeedbackSubmission(unansweredFixture.document).blockers.includes("unanswered-supported-questions"), true);
+
+const manualFixture = makeSubmissionFixture();
+manualFixture.manual.push({ tagName: "SELECT", type: "select-one", name: "manual", id: "manual", style: {}, parentElement: formQuestion("Manual"), getAttribute: () => null, closest() { return this.parentElement; } });
+assert.equal(core.inspectFeedbackSubmission(manualFixture.document).readyToSubmit, false);
+assert.equal(core.inspectFeedbackSubmission(manualFixture.document).blockers.includes("unsupported-questions"), true);
+
+const disabledSubmitFixture = makeSubmissionFixture();
+disabledSubmitFixture.submit.disabled = true;
+assert.equal(core.inspectFeedbackSubmission(disabledSubmitFixture.document).blockers.includes("submit-disabled"), true);
+const hiddenSubmitFixture = makeSubmissionFixture();
+hiddenSubmitFixture.submit.style.display = "none";
+assert.equal(core.inspectFeedbackSubmission(hiddenSubmitFixture.document).blockers.includes("submit-hidden"), true);
+const ambiguousSubmitFixture = makeSubmissionFixture();
+const secondSubmit = { tagName: "INPUT", type: "submit", disabled: false, style: {}, getAttribute: (name) => name === "type" ? "submit" : name === "value" ? "Enviar" : null, click() { throw new Error("ambiguous submit must not click"); } };
+ambiguousSubmitFixture.form.submitControls = [ambiguousSubmitFixture.submit, secondSubmit];
+assert.equal(core.inspectFeedbackSubmission(ambiguousSubmitFixture.document).blockers.includes("ambiguous-submit"), true);
+const outsideSubmitFixture = makeSubmissionFixture();
+outsideSubmitFixture.form.submitControls = [{ tagName: "BUTTON", type: "submit", disabled: false, style: {}, getAttribute: (name) => name === "type" ? "submit" : null, click() {} }];
+outsideSubmitFixture.form.contains = (element) => outsideSubmitFixture.radios.includes(element);
+assert.equal(core.inspectFeedbackSubmission(outsideSubmitFixture.document).blockers.includes("missing-submit"), true);
+const buttonFixture = makeSubmissionFixture();
+buttonFixture.form.submitControls = [{ tagName: "BUTTON", type: "button", disabled: false, style: {}, getAttribute: (name) => name === "type" ? "button" : null, click() { throw new Error("type=button must not click"); } }];
+assert.equal(core.inspectFeedbackSubmission(buttonFixture.document).blockers.includes("missing-submit"), true);
+const cancelSubmitFixture = makeSubmissionFixture();
+cancelSubmitFixture.submit.textContent = "Cancelar";
+assert.equal(core.inspectFeedbackSubmission(cancelSubmitFixture.document).blockers.includes("missing-submit"), true);
+
+const staleFixture = makeSubmissionFixture();
+const staleExpected = core.inspectFeedbackSubmission(staleFixture.document);
+staleFixture.document.location.href = "https://moodle.uip.edu.pa/mod/feedback/complete.php?id=2059249";
+assert.equal(core.submitFeedback(staleFixture.document, { feedbackId: staleExpected.feedbackId, formSignature: staleExpected.formSignature, supportedQuestions: staleExpected.supportedQuestions }).reason, "form-changed");
+assert.deepEqual(staleFixture.clicks, []);
+const changedAnswerFixture = makeSubmissionFixture();
+const changedAnswerExpected = core.inspectFeedbackSubmission(changedAnswerFixture.document);
+changedAnswerFixture.radios[2].checked = false;
+assert.equal(core.submitFeedback(changedAnswerFixture.document, { feedbackId: changedAnswerExpected.feedbackId, formSignature: changedAnswerExpected.formSignature, supportedQuestions: changedAnswerExpected.supportedQuestions }).submitTriggered, false);
+assert.deepEqual(changedAnswerFixture.clicks, []);
+const changedSubmitFixture = makeSubmissionFixture();
+const changedSubmitExpected = core.inspectFeedbackSubmission(changedSubmitFixture.document);
+changedSubmitFixture.submit.disabled = true;
+assert.equal(core.submitFeedback(changedSubmitFixture.document, { feedbackId: changedSubmitExpected.feedbackId, formSignature: changedSubmitExpected.formSignature, supportedQuestions: changedSubmitExpected.supportedQuestions }).submitTriggered, false);
+assert.deepEqual(changedSubmitFixture.clicks, []);
+
+const makeLink = (href, text, attributes) => ({ textContent: text, style: {}, className: attributes && attributes.className || "", getAttribute(name) { return name === "href" ? href : attributes && attributes[name] || null; }, clickCount: 0, click() { this.clickCount += 1; } });
+const navigationDocument = { location: { href: "https://moodle.uip.edu.pa/mod/feedback/view.php?id=2059248", pathname: "/mod/feedback/view.php" } };
+const continueLink = makeLink("/course/view.php?id=8199", "Continuar");
+const navigationScope = { querySelectorAll: () => [continueLink], contains: (link) => link === continueLink };
+const continueAction = core.inspectContinueAction(navigationDocument, navigationScope);
+assert.equal(continueAction.unique, true);
+assert.equal(core.navigateContinue(navigationDocument, navigationScope, { url: continueAction.url, signature: continueAction.signature }).navigationTriggered, true);
+assert.equal(continueLink.clickCount, 1);
+const externalScope = { querySelectorAll: () => [makeLink("https://example.com/course/view.php?id=1", "Continuar"), makeLink("javascript:alert(1)", "Continuar")], contains: () => true };
+assert.equal(core.inspectContinueAction(navigationDocument, externalScope).detected, false);
+const ambiguousContinueScope = { querySelectorAll: () => [makeLink("/course/view.php?id=8199", "Continuar"), makeLink("/course/section.php?id=153820", "Volver al curso")], contains: () => true };
+assert.equal(core.inspectContinueAction(navigationDocument, ambiguousContinueScope).unique, false);
+const staleContinueLink = makeLink("/course/view.php?id=8199", "Continuar");
+const staleContinueScope = { querySelectorAll: () => [staleContinueLink], contains: () => true };
+const staleContinueAction = core.inspectContinueAction(navigationDocument, staleContinueScope);
+staleContinueLink.getAttribute = (name) => name === "href" ? "/course/view.php?id=8200" : null;
+assert.equal(core.navigateContinue(navigationDocument, staleContinueScope, { url: staleContinueAction.url, signature: staleContinueAction.signature }).navigationTriggered, false);
+assert.equal(staleContinueLink.clickCount, 0);
+
+const confirmationDocument = { location: { href: "https://moodle.uip.edu.pa/mod/feedback/view.php?id=2059248", pathname: "/mod/feedback/view.php" }, querySelectorAll: () => [] };
+const confirmationScope = { querySelector: () => ({}), querySelectorAll: () => [], contains: () => true };
+const confirmationResult = core.inspectFeedbackResult(confirmationDocument, confirmationScope, { id: "2059248", completionState: "unknown" });
+assert.equal(confirmationResult.state, "confirmation");
+assert.equal(confirmationResult.submissionVerified, true);
+
+const previousSectionLink = makeLink("/course/section.php?id=153819", "Anterior", { rel: "prev" });
+const nextSectionLink = makeLink("/course/section.php?id=188888", "Siguiente", { rel: "next" });
+previousSectionLink.parentElement = { className: "", querySelector: () => null };
+nextSectionLink.parentElement = { className: "dimmed", querySelector: () => null };
+const sectionNavigationDocument = { location: { href: "https://moodle.uip.edu.pa/course/section.php?id=153820", pathname: "/course/section.php" } };
+const sectionNavigationScope = { querySelectorAll: () => [previousSectionLink, nextSectionLink] };
+const sectionNavigation = core.inspectSectionNavigation(sectionNavigationDocument, sectionNavigationScope);
+assert.equal(sectionNavigation.previous.id, "153819");
+assert.equal(sectionNavigation.next.id, "188888");
+assert.equal(sectionNavigation.next.available, false);
+assert.notEqual(sectionNavigation.next.id, "153821");
+
+const navigatorDiagnostic = core.sanitizeDiagnostic({ scannerVersion: core.VERSION, pageType: "FEEDBACK", feedbackSubmission: { feedbackId: "2059248", formDetected: true, formSignature: "safe-internal-signature", supportedQuestions: 7, answeredSupportedQuestions: 7, unsupportedQuestions: 0, submitControl: { detected: true, unique: true, enabled: true, visible: true, label: "Enviar" }, readyToSubmit: true, blockers: [] }, feedbackResult: { feedbackId: "2059248", state: "completed", completionState: "completed", submissionVerified: true, continueAction: { detected: true, unique: true, url: "https://moodle.uip.edu.pa/course/view.php?id=8199&sesskey=never-copy", label: "Continuar", signature: "internal-link-signature" } }, sectionNavigation, courses: [], modules: [], activities: [], feedback: [], errors: [] });
+assert.equal(JSON.stringify(navigatorDiagnostic).includes("safe-internal-signature"), false);
+assert.equal(JSON.stringify(navigatorDiagnostic).includes("internal-link-signature"), false);
+assert.equal(JSON.stringify(navigatorDiagnostic).includes("sesskey"), false);
 console.log("core smoke tests passed");
