@@ -3,10 +3,10 @@ const assert = require("assert");
 const fs = require("fs");
 const vm = require("vm");
 
-const context = { globalThis: {}, URL, Set };
+const context = { globalThis: {}, URL, Set, Event };
 context.globalThis = context;
 vm.createContext(context);
-["state.js", "moodle.js", "courses.js", "modules.js", "activities.js", "feedback.js", "sanitize.js"].forEach((file) => {
+["state.js", "moodle.js", "courses.js", "modules.js", "activities.js", "feedback.js", "feedback-form.js", "sanitize.js"].forEach((file) => {
   vm.runInContext(fs.readFileSync(`extension/core/${file}`, "utf8"), context, { filename: file });
 });
 
@@ -240,4 +240,85 @@ assert.equal(diagnostic.activities[0].name.length, 160);
 assert.equal(diagnostic.scannerVersion, "0.1.1");
 assert.equal(core.isCompatibleScan({ scannerVersion: core.VERSION }), true);
 assert.equal(core.isCompatibleScan({ scannerVersion: "0.1.1" }), false);
+
+const formLabel = (forId, text) => ({ htmlFor: forId, textContent: text, getAttribute: () => null, style: {}, parentElement: null });
+const formQuestion = (text) => ({
+  textContent: "", style: {}, parentElement: null, getAttribute: () => null,
+  querySelector: () => ({ textContent: text, getAttribute: () => null })
+});
+const events = [];
+const formInputs = [];
+const syntheticInput = (name, id, value, question, options) => {
+  const input = { type: "radio", name, id, value, checked: Boolean(options && options.checked), required: Boolean(options && options.required), disabled: false, style: {}, parentElement: question,
+    getAttribute: (attribute) => options && options.attributes && options.attributes[attribute] || null,
+    closest: () => question,
+    dispatchEvent: (event) => events.push(`${id}:${event.type}`)
+  };
+  formInputs.push(input);
+  return input;
+};
+const q1 = formQuestion("Pregunta uno");
+const q2 = formQuestion("Pregunta dos");
+const q3 = formQuestion("Pregunta tres");
+const q4 = formQuestion("Pregunta cuatro");
+const q1Excellent = syntheticInput("q1", "q1-ex", "value-9", q1, { required: true });
+const q1VeryGood = syntheticInput("q1", "q1-mb", "value-7", q1);
+const q2VeryGood = syntheticInput("q2", "q2-mb", "other-value", q2);
+const q2Good = syntheticInput("q2", "q2-b", "selected-value", q2, { checked: true });
+const q3Good = syntheticInput("q3", "q3-b", "another-value", q3);
+const q4VeryGood = syntheticInput("q4", "q4-mb", "already-value", q4, { checked: true });
+const labelsForForm = [formLabel("q1-ex", "Excelente"), formLabel("q1-mb", "Muy Bueno"), formLabel("q2-mb", "Muy Bueno"), formLabel("q2-b", "Bueno"), formLabel("q3-b", "Bueno"), formLabel("q4-mb", "Muy Bueno")];
+const manualText = { tagName: "TEXTAREA", name: "comment", id: "comment", value: "", style: {}, parentElement: formQuestion("Comentario"), getAttribute: () => null, closest: () => formQuestion("Comentario") };
+const hiddenInput = { type: "hidden", value: "synthetic-hidden-value" };
+const syntheticForm = {
+  style: {}, parentElement: null, getAttribute: () => null,
+  querySelector(selector) { return selector.includes("input") ? formInputs[0] : null; },
+  querySelectorAll(selector) {
+    if (selector === 'input[type="radio"]') return formInputs;
+    if (selector === "label") return labelsForForm;
+    if (selector.includes("textarea")) return [manualText];
+    return [];
+  },
+  submit() { throw new Error("submit must not be called"); }
+};
+const responseDocument = {
+  location: { href: "https://moodle.uip.edu.pa/mod/feedback/complete.php?id=synthetic-feedback", pathname: "/mod/feedback/complete.php" },
+  querySelectorAll: () => [syntheticForm]
+};
+const viewDocument = { location: { href: "https://moodle.uip.edu.pa/mod/feedback/view.php?id=synthetic-feedback", pathname: "/mod/feedback/view.php" }, querySelectorAll: () => [syntheticForm] };
+assert.equal(core.inspectFeedbackForm(viewDocument), null);
+const inspectedForm = core.inspectFeedbackForm(responseDocument);
+assert.equal(inspectedForm.id, "synthetic-feedback");
+assert.equal(inspectedForm.questions.length, 5);
+assert.equal(inspectedForm.supportedQuestions, 4);
+assert.equal(inspectedForm.unsupportedQuestions, 1);
+assert.equal(inspectedForm.questions[0].options[1].label, "Muy Bueno");
+assert.equal(inspectedForm.questions[0].options[1].value, "value-7");
+assert.equal(inspectedForm.questions[1].answered, true);
+assert.equal(inspectedForm.questions[0].required, true);
+assert.equal(inspectedForm.questions[1].required, null);
+assert.equal(inspectedForm.preferenceOptions.includes("Muy Bueno"), true);
+assert.equal(inspectedForm.preferenceOptions.includes("Bueno"), true);
+assert.equal(inspectedForm.preferenceOptions.some((label) => label === "Muy Bueno" && label === "Bueno"), false);
+assert.equal(core.feedbackPrefillPreview(inspectedForm, "Muy Bue").preference, null);
+const preview = core.feedbackPrefillPreview(inspectedForm, "Muy Bueno");
+assert.equal(preview.changed, 1);
+assert.equal(preview.skippedExisting, 1);
+assert.equal(preview.missingOption, 1);
+assert.equal(core.prefillFeedbackForm(responseDocument, "Muy Bueno", "synthetic-feedback", 99).changed, 0);
+const prefill = core.prefillFeedbackForm(responseDocument, "Muy Bueno", "synthetic-feedback", inspectedForm.questions.length);
+assert.equal(prefill.changed, 1);
+assert.equal(prefill.skippedExisting, 1);
+assert.equal(prefill.alreadyMatching, 1);
+assert.equal(prefill.missingOption, 1);
+assert.equal(prefill.unsupported, 1);
+assert.equal(prefill.submitted, false);
+assert.equal(q1VeryGood.checked, true);
+assert.equal(q2Good.checked, true);
+assert.equal(q3Good.checked, false);
+assert.deepEqual(events, ["q1-mb:input", "q1-mb:change"]);
+const formDiagnostic = core.sanitizeDiagnostic({ scannerVersion: core.VERSION, pageType: "FEEDBACK", feedbackForm: inspectedForm, courses: [], modules: [], activities: [], feedback: [], errors: [] });
+assert.equal(JSON.stringify(formDiagnostic).includes("synthetic-hidden-value"), false);
+assert.equal(JSON.stringify(formDiagnostic).includes("value-7"), false);
+assert.equal(JSON.stringify(formDiagnostic).includes("comment"), true);
 console.log("core smoke tests passed");
