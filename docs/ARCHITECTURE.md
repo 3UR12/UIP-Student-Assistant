@@ -4,9 +4,9 @@
 
 `extension/core/` is the generic scanner. Its modules accept a DOM `Document`, use only standard browser DOM APIs, and publish a structured result through `UIPScannerCore`. They do not reference `chrome`, browser storage, network APIs, credentials, or UI elements.
 
-`extension/content/content.js` is a thin integration layer. It handles the explicit read message (`UIP_SCAN_CURRENT_DOCUMENT`) and the separate local-DOM prefill message (`UIP_PREFILL_FEEDBACK`). `extension/popup/` presents the result, preview, and copies only an allow-listed diagnostic. v0.2.0 does not need a background service worker.
+`extension/content/content.js` is a thin integration layer. It separates scan, prefill, submission inspection, real-submit activation, navigation inspection, and Continue activation into distinct messages. `extension/popup/` presents the result, preview, two-step submission confirmation, and copies only an allow-listed diagnostic. v0.3.0 does not need a background service worker.
 
-`extension/core/feedback-form.js` owns Feedback `complete.php` detection, scoped question inspection, exact-label matching, preview generation, and local radio prefill. It has no Chrome APIs and never submits a form.
+`extension/core/feedback-form.js` owns Feedback `complete.php` detection, scoped question inspection, exact-label matching, preview generation, and local radio prefill. `submission.js` re-inspects the same form and permits only one visible, enabled, in-form `type=submit` control. `navigation.js` identifies safe Moodle Continue anchors or visible GET form-submit controls, plus structural previous/next section links. These modules have no Chrome APIs.
 
 The generic core is stored inside `extension/` rather than at repository root because Chromium's **Load unpacked** operation treats the selected `extension/` directory as the extension package and cannot load scripts from its parent directory. This retains the core/extension code boundary without copying source files or adding a bundler.
 
@@ -24,7 +24,7 @@ Core identifies page → extracts visible DOM metadata → records safe errors
 Popup renders a summary or sanitizes the allow-listed diagnostic for copying
 ```
 
-No step navigates Moodle, submits a form, or persists state. On an already-open Feedback `complete.php` page, the explicit prefill action may set compatible unanswered radio controls and dispatch `input`/`change`; it never invokes `click`, `submit`, or `requestSubmit`.
+No step persists state. On an already-open Feedback `complete.php` page, explicit prefill may set compatible unanswered radio controls and dispatch `input`/`change`. A separate review and confirmation sequence may invoke `click()` only on the revalidated real submit control. Post-submit Feedback context can be recovered only from one structural breadcrumb Feedback link when Moodle omits the URL ID. A detected Continue anchor or GET form-submit control requires another explicit action and is revalidated before its own `click()`. Neither path uses `submit`, `requestSubmit`, `fetch`, or manual navigation.
 
 ## Detection approach
 

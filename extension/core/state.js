@@ -2,7 +2,7 @@
 (function attachState(global) {
   const core = global.UIPScannerCore = global.UIPScannerCore || {};
 
-  core.VERSION = "0.2.0";
+  core.VERSION = "0.3.0";
   core.selectors = {
     courseLinks: 'a[href*="/course/view.php"]',
     courseBreadcrumbLinks: '#page-navbar a[href*="/course/view.php"], .breadcrumb a[href*="/course/view.php"], nav[aria-label="breadcrumb"] a[href*="/course/view.php"]',
