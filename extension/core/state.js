@@ -52,7 +52,7 @@
   };
 
   core.isExcludedRegion = function isExcludedRegion(element) {
-    return Boolean(core.closest(element, 'nav, aside, footer, #page-footer, #page-navbar, .block, .sidebar, .drawer, [data-region="drawer"], [data-region="courseindex"]'));
+    return Boolean(core.closest(element, 'nav, aside, footer, #page-footer, #page-navbar, .sidebar, .drawer, [data-region="drawer"], [data-region="courseindex"], .block_navigation, .block_settings'));
   };
 
   core.isDomVisible = function isDomVisible(element) {
