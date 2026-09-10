@@ -35,6 +35,14 @@ assert.equal(core.isDomVisible(visibleLink), true);
 assert.equal(core.isDomVisible(null), false);
 const hiddenParent = { hidden: true, getAttribute: () => null, style: {}, parentElement: null };
 assert.equal(core.isDomVisible({ getAttribute: () => null, style: {}, parentElement: hiddenParent }), false);
+const dashboardBlockChild = {
+  closest(selector) { return selector.includes(".block,") || selector.endsWith(".block") ? {} : null; }
+};
+assert.equal(core.isExcludedRegion(dashboardBlockChild), false);
+const drawerChild = {
+  closest(selector) { return selector.includes(".drawer") ? {} : null; }
+};
+assert.equal(core.isExcludedRegion(drawerChild), true);
 
 const courseLink = {
   textContent: "Arquitectura de Computadoras",
