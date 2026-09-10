@@ -13,11 +13,12 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       const preference = message.preference;
       const feedbackId = message.feedbackId;
       const expectedQuestionCount = message.expectedQuestionCount;
-      if (typeof preference !== "string" || preference.length > 160 || typeof feedbackId !== "string" || feedbackId.length > 80 || !Number.isInteger(expectedQuestionCount) || expectedQuestionCount < 1 || expectedQuestionCount > 200) {
+      const expectedSignature = message.expectedSignature;
+      if (typeof preference !== "string" || preference.length > 160 || typeof feedbackId !== "string" || feedbackId.length > 80 || !Number.isInteger(expectedQuestionCount) || expectedQuestionCount < 1 || expectedQuestionCount > 200 || typeof expectedSignature !== "string" || !expectedSignature || expectedSignature.length > 8192) {
         sendResponse({ ok: false, error: "Invalid prefill request." });
         return false;
       }
-      const prefillResult = globalThis.UIPScannerCore.prefillFeedbackForm(document, preference, feedbackId, expectedQuestionCount);
+      const prefillResult = globalThis.UIPScannerCore.prefillFeedbackForm(document, preference, feedbackId, expectedQuestionCount, expectedSignature);
       const scan = globalThis.UIPScannerCore.scanDocument(document);
       sendResponse({ ok: true, prefillResult, scan });
     } catch (_) { sendResponse({ ok: false, error: "The form could not be preselected." }); }

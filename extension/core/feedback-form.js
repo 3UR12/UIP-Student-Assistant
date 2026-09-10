@@ -2,6 +2,7 @@
 (function attachFeedbackForm(global) {
   const core = global.UIPScannerCore = global.UIPScannerCore || {};
   const labelLimit = 160;
+  const signatureLimit = 8192;
   const normalize = (value) => typeof value === "string" ? value.replace(/\s+/g, " ").trim().toLocaleLowerCase() : "";
   const labelText = (node) => core.text(node, labelLimit);
 
@@ -36,6 +37,33 @@
     return null;
   };
 
+  core.feedbackFormSignature = function feedbackFormSignature(feedbackId, questions) {
+    if (typeof feedbackId !== "string" || !feedbackId || !Array.isArray(questions)) return null;
+    const identity = {
+      feedbackId,
+      radioQuestions: questions.filter((question) => question.type === "radio").map((question) => ({
+        id: typeof question.id === "string" ? question.id : "",
+        options: (question.options || []).map((option) => normalize(option.label))
+      }))
+    };
+    const signature = JSON.stringify(identity);
+    return signature.length <= signatureLimit ? signature : null;
+  };
+
+  const commonPreferenceOptions = (questions) => {
+    const optionMaps = questions.map((question) => new Map(question.options
+      .filter((option) => option.label)
+      .map((option) => [normalize(option.label), option.label])));
+    if (!optionMaps.length) return [];
+    return Array.from(optionMaps[0]).filter(([key]) => optionMaps.every((options) => options.has(key))).map(([, label]) => label);
+  };
+
+  const belongsToForm = (input, form) => {
+    if (!input || !form) return false;
+    if (typeof form.contains === "function") return form.contains(input);
+    return input.form === form;
+  };
+
   core.inspectFeedbackForm = function inspectFeedbackForm(document) {
     const feedbackId = core.idFromUrl(document.location.href, document.location.href);
     const form = core.findFeedbackResponseForm(document);
@@ -62,13 +90,10 @@
     const unsupported = Array.from(form.querySelectorAll('textarea, select, input[type="checkbox"], input[type="text"], input:not([type])')).filter((input) => core.isDomVisible(input)).map((input, index) => {
       const container = core.feedbackQuestionContainer(input);
       const type = input.tagName.toLowerCase() === "textarea" ? "textarea" : input.tagName.toLowerCase() === "select" ? "select" : input.type === "checkbox" ? "checkbox" : "text";
-      return { id: input.name || input.id || `manual-${index + 1}`, index: questions.length + index + 1, label: core.feedbackQuestionLabel(container), type, required: core.feedbackRequired([input], container), answered: type === "checkbox" ? input.checked === true : Boolean(input.value), currentValue: null, options: [] };
+      return { id: input.name || input.id || `manual-${index + 1}`, index: questions.length + index + 1, label: core.feedbackQuestionLabel(container), type, required: core.feedbackRequired([input], container), answered: type === "checkbox" ? input.checked === true : null, currentValue: null, options: [] };
     });
-    const preferenceOptions = questions.reduce((available, question) => {
-      const labels = new Map(question.options.filter((option) => option.label).map((option) => [normalize(option.label), option.label]));
-      labels.forEach((label, key) => { if (!available.has(key)) available.set(key, label); });
-      return available;
-    }, new Map());
+    const preferenceOptions = commonPreferenceOptions(questions);
+    const signature = core.feedbackFormSignature(feedbackId, questions);
     return {
       id: feedbackId,
       pageUrl: core.canonicalMoodleUrl(document.location.href, document.location.href, "/mod/feedback/complete.php"),
@@ -76,8 +101,9 @@
       questions: questions.concat(unsupported),
       supportedQuestions: questions.length,
       unsupportedQuestions: unsupported.length,
-      canPrefill: questions.length > 0 && preferenceOptions.size > 0,
-      preferenceOptions: Array.from(preferenceOptions.values())
+      canPrefill: questions.length > 0 && preferenceOptions.length > 0 && signature !== null,
+      preferenceOptions,
+      signature
     };
   };
 
@@ -105,19 +131,28 @@
     return result;
   };
 
-  core.prefillFeedbackForm = function prefillFeedbackForm(document, preference, expectedFeedbackId, expectedQuestionCount) {
+  core.prefillFeedbackForm = function prefillFeedbackForm(document, preference, expectedFeedbackId, expectedQuestionCount, expectedSignature) {
     const formState = core.inspectFeedbackForm(document);
     const result = core.feedbackPrefillPreview(formState, preference);
-    if (!formState || formState.id !== expectedFeedbackId || formState.questions.length !== expectedQuestionCount || typeof preference !== "string" || preference.length > labelLimit) {
+    const reject = (reason) => {
       result.matched = 0; result.changed = 0; result.alreadyMatching = 0; result.skippedExisting = 0; result.unsupported = 0; result.missingOption = 0; result.details = [];
+      result.staleForm = reason === "form-changed";
+      result.reason = reason;
       return result;
+    };
+    if (!formState || formState.id !== expectedFeedbackId || formState.questions.length !== expectedQuestionCount || typeof preference !== "string" || preference.length > labelLimit || typeof expectedSignature !== "string" || expectedSignature.length > signatureLimit) {
+      return reject("form-changed");
+    }
+    if (formState.signature !== expectedSignature) {
+      return reject("form-changed");
     }
     const normalizedPreference = normalize(preference);
     if (!normalizedPreference || !result.preference) return result;
     const form = core.findFeedbackResponseForm(document);
+    if (!form) return reject("form-changed");
     result.matched = 0; result.changed = 0; result.alreadyMatching = 0; result.skippedExisting = 0; result.missingOption = 0;
     formState.questions.filter((question) => question.type === "radio").forEach((question) => {
-      const inputs = Array.from(form.querySelectorAll('input[type="radio"]')).filter((input) => input.name === question.id);
+      const inputs = Array.from(form.querySelectorAll('input[type="radio"]')).filter((input) => input.name === question.id && input.disabled !== true && core.isDomVisible(input) && belongsToForm(input, form));
       const target = inputs.find((input) => normalize(core.feedbackOptionLabel(input, form)) === normalizedPreference);
       const detail = result.details.find((item) => item.id === question.id);
       if (!target) { result.missingOption += 1; if (detail) detail.status = "missing-option"; return; }

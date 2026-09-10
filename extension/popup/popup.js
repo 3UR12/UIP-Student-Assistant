@@ -32,7 +32,7 @@
       preference.append(option);
     });
     preference.disabled = !form.canPrefill;
-    prefillButton.disabled = !form.canPrefill || !preference.value;
+    prefillButton.disabled = !form.canPrefill || !form.signature || !preference.value;
     prefillStatus.textContent = "";
     show(assistant);
   }
@@ -71,7 +71,7 @@
   });
 
   preference.addEventListener("change", () => {
-    prefillButton.disabled = !lastScan || !lastScan.feedbackForm || !lastScan.feedbackForm.canPrefill || !preference.value;
+    prefillButton.disabled = !lastScan || !lastScan.feedbackForm || !lastScan.feedbackForm.canPrefill || !lastScan.feedbackForm.signature || !preference.value;
     if (!prefillButton.disabled) {
       const preview = globalThis.UIPScannerCore.feedbackPrefillPreview(lastScan.feedbackForm, preference.value);
       const labels = preview.details.filter((item) => item.status === "changed").map((item) => item.label || item.id).filter(Boolean);
@@ -80,18 +80,22 @@
   });
 
   prefillButton.addEventListener("click", () => {
-    if (!lastScan || !lastScan.feedbackForm || !preference.value) return;
+    if (!lastScan || !lastScan.feedbackForm || !lastScan.feedbackForm.signature || !preference.value) return;
     prefillButton.disabled = true;
     prefillStatus.textContent = "Preseleccionando radios compatibles…";
     activeTab((tab) => {
       if (!tab || !tab.id) { prefillStatus.textContent = "No se pudo acceder a la pestaña actual."; return; }
-      chrome.tabs.sendMessage(tab.id, { type: "UIP_PREFILL_FEEDBACK", feedbackId: lastScan.feedbackForm.id, expectedQuestionCount: lastScan.feedbackForm.questions.length, preference: preference.value }, (response) => {
+      chrome.tabs.sendMessage(tab.id, { type: "UIP_PREFILL_FEEDBACK", feedbackId: lastScan.feedbackForm.id, expectedQuestionCount: lastScan.feedbackForm.questions.length, expectedSignature: lastScan.feedbackForm.signature, preference: preference.value }, (response) => {
         if (chrome.runtime.lastError || !response || !response.ok || !globalThis.UIPScannerCore.isCompatibleScan(response.scan)) {
           prefillStatus.textContent = "No se pudo preseleccionar. Recarga Moodle y vuelve a revisar.";
           return;
         }
         render(response.scan);
         const result = response.prefillResult;
+        if (result.staleForm) {
+          prefillStatus.textContent = "El formulario cambió desde el análisis. Vuelve a revisar antes de preseleccionar.";
+          return;
+        }
         prefillStatus.textContent = `${result.changed} respuestas preseleccionadas. ${result.skippedExisting} se dejaron intactas por respuestas existentes.`;
       });
     });
