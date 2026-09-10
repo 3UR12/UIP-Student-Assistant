@@ -17,9 +17,15 @@
 
   core.currentCourse = function currentCourse(document, pageType) {
     if (pageType !== "COURSE" && pageType !== "SECTION" && pageType !== "FEEDBACK") return null;
-    const name = core.text(document.querySelector(core.selectors.courseName), 300);
-    const id = pageType === "COURSE" ? core.idFromUrl(document.location.href, document.location.href) : null;
-    return { id: id || null, name: name || null, url: pageType === "COURSE" ? document.location.href : null };
+    if (pageType === "COURSE") {
+      const name = core.text(document.querySelector(core.selectors.courseName), 300);
+      const url = core.canonicalMoodleUrl(document.location.href, document.location.href, "/course/view.php");
+      return { id: core.idFromUrl(url, document.location.href), name: name || null, url };
+    }
+    const link = document.querySelector(core.selectors.courseBreadcrumbLinks) || document.querySelector(core.selectors.courseLinks);
+    const url = link && core.canonicalMoodleUrl(link.getAttribute("href"), document.location.href, "/course/view.php");
+    if (!url) return { id: null, name: null, url: null };
+    return { id: core.idFromUrl(url, document.location.href), name: core.text(link, 300), url };
   };
 
   core.scanDocument = function scanDocument(document) {

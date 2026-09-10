@@ -4,7 +4,8 @@
 
   core.VERSION = "0.1.0";
   core.selectors = {
-    courseLinks: 'a[href*="/course/view.php?id="]',
+    courseLinks: 'a[href*="/course/view.php"]',
+    courseBreadcrumbLinks: '#page-navbar a[href*="/course/view.php"], .breadcrumb a[href*="/course/view.php"], nav[aria-label="breadcrumb"] a[href*="/course/view.php"]',
     sectionLinks: 'a[href*="/course/section.php?id="]',
     activityLinks: 'a[href*="/mod/"]',
     sectionContainers: '[data-for="course_section"], .course-section, li.section, .section',
@@ -32,19 +33,50 @@
     try { return new URL(value, base).searchParams.get("id"); } catch (_) { return null; }
   };
 
+  core.isMoodlePathWithId = function isMoodlePathWithId(value, base, pathname) {
+    try {
+      const url = new URL(value, base);
+      const origin = new URL(base).origin;
+      return url.origin === origin && url.pathname === pathname && Boolean(url.searchParams.get("id"));
+    } catch (_) { return false; }
+  };
+
+  core.canonicalMoodleUrl = function canonicalMoodleUrl(value, base, pathname) {
+    if (!core.isMoodlePathWithId(value, base, pathname)) return null;
+    const url = new URL(value, base);
+    return `${url.origin}${url.pathname}?id=${encodeURIComponent(url.searchParams.get("id"))}`;
+  };
+
   core.closest = function closest(element, selector) {
     try { return element && element.closest(selector); } catch (_) { return null; }
   };
 
-  core.restriction = function restrictionFor(element) {
+  core.isDomVisible = function isDomVisible(element) {
+    if (!element) return false;
+    let current = element;
+    while (current) {
+      const ariaHidden = current.getAttribute && current.getAttribute("aria-hidden");
+      const style = current.style || {};
+      if (current.hidden === true || ariaHidden === "true" || style.display === "none" || style.visibility === "hidden") return false;
+      try {
+        const view = current.ownerDocument && current.ownerDocument.defaultView;
+        const computed = view && view.getComputedStyle && view.getComputedStyle(current);
+        if (computed && (computed.display === "none" || computed.visibility === "hidden")) return false;
+      } catch (_) { /* Visibility cannot be computed; continue with available DOM evidence. */ }
+      current = current.parentElement;
+    }
+    return true;
+  };
+
+  core.restriction = function restrictionFor(element, options) {
     if (!element) return { available: null, locked: null, restrictionText: null };
     const evidence = element.querySelector(core.selectors.restricted);
     const text = core.text(evidence, 300);
     const classText = String(element.className || "").toLowerCase();
     const locked = Boolean(text || /\b(restricted|unavailable|locked|dimmed)\b/.test(classText));
-    return locked
-      ? { available: false, locked: true, restrictionText: text || "Restricted by Moodle" }
-      : { available: null, locked: null, restrictionText: null };
+    if (locked) return { available: false, locked: true, restrictionText: text || "Restricted by Moodle" };
+    if (options && options.navigable === true) return { available: true, locked: false, restrictionText: null };
+    return { available: null, locked: null, restrictionText: null };
   };
 
   core.completionFor = function completionFor(element) {

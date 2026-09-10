@@ -16,7 +16,8 @@
         const key = id || `position-${index}`;
         if (found.has(key)) return;
         const title = section.querySelector('.sectionname, [data-for="section_title"], h2, h3, h4') || link;
-        const restriction = core.restriction(section);
+        const navigable = core.isMoodlePathWithId(url, document.location.href, "/course/section.php") && core.isDomVisible(link) && core.isDomVisible(section);
+        const restriction = core.restriction(section, { navigable });
         found.set(key, { id, name: core.text(title, 300), url, available: restriction.available, locked: restriction.locked, restrictionText: restriction.restrictionText, completionState: core.completionFor(section) });
       } catch (_) { core.captureError(errors, "module"); }
     });
