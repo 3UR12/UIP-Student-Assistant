@@ -24,7 +24,13 @@
   };
 
   core.findMainContent = function findMainContent(document) {
-    return core.firstVisibleMatch(document, ['[data-region="course-content"]', '#region-main', '[role="main"]', 'main']);
+    return core.firstVisibleMatch(document, ['#region-main', 'main[role="main"]', '[role="main"]', 'main', '[data-region="course-content"]']);
+  };
+
+  core.currentSectionFromUrl = function currentSectionFromUrl(document) {
+    const url = core.canonicalMoodleUrl(document.location.href, document.location.href, "/course/section.php");
+    if (!url) return null;
+    return { id: core.idFromUrl(url, document.location.href), sectionNumber: null, name: null, url, available: null, locked: null, restrictionText: null, completionState: "unknown" };
   };
 
   core.findDashboardScope = function findDashboardScope(document) {
@@ -60,8 +66,12 @@
         const sectionId = core.idFromUrl(document.location.href, document.location.href);
         if (sectionScope) {
           modules = core.scanModules(sectionScope, document, errors, sectionId);
-          currentSection = modules[0] || null;
+          currentSection = modules.find((module) => module.id === sectionId) || core.currentSectionFromUrl(document);
           activities = core.scanActivities(sectionScope, document, errors);
+        } else {
+          currentSection = core.currentSectionFromUrl(document);
+          modules = currentSection ? [currentSection] : [];
+          activities = core.scanActivities(mainScope, document, errors);
         }
       }
     } catch (_) { core.captureError(errors, "modules"); }

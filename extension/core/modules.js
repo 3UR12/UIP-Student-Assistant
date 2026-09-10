@@ -20,6 +20,12 @@
     );
   };
 
+  core.sectionNameFrom = function sectionNameFrom(section, link) {
+    const title = section && section.querySelector('.sectionname, [data-for="section_title"], h2, h3, h4');
+    const value = core.text(title || link, 160);
+    return value && !/^(perfilado de sección|ir a sección|seleccionar sección)(?:\s|$)/i.test(value) ? value : null;
+  };
+
   core.findCurrentSection = function findCurrentSection(document, courseScope) {
     if (!courseScope) return null;
     const currentId = core.idFromUrl(document.location.href, document.location.href);
@@ -42,9 +48,12 @@
       Array.from(scope.querySelectorAll(core.selectors.sectionContainers))
         .filter((section) => core.isMoodleSection(section, document))
     );
+    const independentLinks = [];
     scope.querySelectorAll(core.selectors.sectionLinks).forEach((link) => {
+      if (core.isExcludedRegion(link) || !core.canonicalMoodleUrl(link.getAttribute("href"), document.location.href, "/course/section.php")) return;
       const container = core.closest(link, core.selectors.sectionContainers);
       if (container && core.isMoodleSection(container, document) && !candidates.includes(container)) candidates.push(container);
+      if (!container || !core.isMoodleSection(container, document)) independentLinks.push(link);
     });
     candidates.forEach((section, index) => {
       try {
@@ -54,11 +63,21 @@
         const sectionNumber = core.sectionNumberFrom(section);
         const key = id || `section-${sectionNumber || index}`;
         if (found.has(key)) return;
-        const title = section.querySelector('.sectionname, [data-for="section_title"], h2, h3, h4') || link;
         const navigable = Boolean(linkedUrl) && core.isDomVisible(link) && core.isDomVisible(section);
         const restriction = core.restriction(section, { navigable });
-        found.set(key, { id: id || null, sectionNumber, name: core.text(title, 160), url: linkedUrl, available: restriction.available, locked: restriction.locked, restrictionText: restriction.restrictionText, completionState: core.completionFor(section) });
+        const module = { id: id || null, sectionNumber, name: core.sectionNameFrom(section, link), url: linkedUrl, available: restriction.available, locked: restriction.locked, restrictionText: restriction.restrictionText, completionState: core.completionFor(section) };
+        if (!module.id && module.sectionNumber === null && !module.name && !module.url) return;
+        found.set(key, module);
       } catch (_) { core.captureError(errors, "module"); }
+    });
+    independentLinks.forEach((link, index) => {
+      try {
+        const url = core.canonicalMoodleUrl(link.getAttribute("href"), document.location.href, "/course/section.php");
+        const id = core.idFromUrl(url, document.location.href);
+        if (!id || found.has(id)) return;
+        const restriction = core.restriction(link.parentElement || link, { navigable: core.isDomVisible(link) });
+        found.set(id, { id, sectionNumber: null, name: core.sectionNameFrom(null, link), url, available: restriction.available, locked: restriction.locked, restrictionText: restriction.restrictionText, completionState: "unknown", position: index + 1 });
+      } catch (_) { core.captureError(errors, "section-link"); }
     });
     return Array.from(found.values());
   };

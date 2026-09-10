@@ -18,6 +18,7 @@ assert.equal(core.detectPageType({ location: { pathname: "/mod/feedback/view.php
 assert.equal(core.classifyActivity("https://moodle.uip.edu.pa/mod/feedback/view.php?id=10"), "feedback");
 assert.equal(core.classifyActivity("https://moodle.uip.edu.pa/mod/assign/view.php?id=11"), "assign");
 assert.equal(core.classifyActivity("https://moodle.uip.edu.pa/mod/custom/view.php?id=12"), "unknown");
+assert.equal(core.classifyActivity("https://moodle.uip.edu.pa/mod/attendance/view.php?id=12"), "attendance");
 assert.deepEqual(core.canonicalActivityFromUrl("https://moodle.uip.edu.pa/mod/feedback/view.php?id=2059248", "https://moodle.uip.edu.pa/my/"), {
   id: "2059248", type: "feedback", url: "https://moodle.uip.edu.pa/mod/feedback/view.php?id=2059248"
 });
@@ -80,6 +81,16 @@ const node = (attributes, textContent) => ({
   querySelector() { return null; },
   closest() { return null; }
 });
+const outerMain = node({}, "");
+const nestedCourseContent = node({}, "");
+const scopedDocument = {
+  querySelector(selector) {
+    if (selector === "#region-main") return outerMain;
+    if (selector === '[data-region="course-content"]') return nestedCourseContent;
+    return null;
+  }
+};
+assert.equal(core.findMainContent(scopedDocument), outerMain);
 const semanticName = node({}, "Envíanos tu Opinión3");
 const realActivity = node({}, "");
 const actionActivity = node({}, "");
@@ -123,7 +134,7 @@ const feedbackScope = {
     if (selector === core.selectors.restricted) return null;
     return feedbackHeading;
   },
-  querySelectorAll: () => [responseLink]
+  querySelectorAll: (selector) => selector === core.selectors.completion ? [feedbackCompletion] : [responseLink]
 };
 const feedbackDocument = {
   location: {
@@ -139,11 +150,20 @@ assert.equal(feedbackPage.responseUrl, "https://moodle.uip.edu.pa/mod/feedback/c
 assert.equal(feedbackPage.canRespond, true);
 assert.equal(feedbackPage.completionState, "incomplete");
 
+const activitySpecificHeading = node({}, "Envíanos tu Opinión3");
+const genericCourseHeading = node({}, "Nombre completo del curso");
+assert.equal(core.activityPageName({ querySelector: () => null }, { querySelector: () => activitySpecificHeading }), "Envíanos tu Opinión3");
+assert.equal(core.activityPageName({ querySelector: () => null, genericCourseHeading }, { querySelector: () => null }), null);
+
 const completionNode = { textContent: "Hecho: Enviar retroalimentación", className: "", getAttribute: () => null };
 assert.equal(core.completionFor({ querySelector: () => completionNode }), "completed");
 const pendingCompletionNode = { textContent: "Por hacer: Enviar retroalimentación", className: "", getAttribute: () => null };
 assert.equal(core.completionFor({ querySelector: () => pendingCompletionNode }), "incomplete");
 assert.equal(core.completionFor({ textContent: "Hecho fuera de la región", querySelector: () => null }), "unknown");
+const unrelatedCompletion = node({ "data-cmid": "111" }, "Hecho");
+const relatedCompletion = node({ "data-cmid": "2059248" }, "Por hacer: Enviar retroalimentación");
+assert.equal(core.completionFor({ querySelectorAll: () => [unrelatedCompletion, relatedCompletion], querySelector: () => null }, "2059248"), "incomplete");
+assert.equal(core.completionFor({ querySelectorAll: () => [unrelatedCompletion, node({ "data-cmid": "222" }, "Hecho")], querySelector: () => null }, "2059248"), "unknown");
 
 const emptySection = { id: "", getAttribute: () => null, querySelector: () => null };
 assert.equal(core.isMoodleSection(emptySection, { location: { href: "https://moodle.uip.edu.pa/course/view.php?id=1" } }), false);
@@ -160,6 +180,18 @@ const currentSectionModules = core.scanModules(currentSectionNode, { location: {
 assert.equal(currentSectionModules.length, 1);
 assert.equal(currentSectionModules[0].id, "153818");
 assert.equal(currentSectionModules[0].sectionNumber, 1);
+
+const independentSectionLink = node({ href: "/course/section.php?id=153819" }, "Unidad 2");
+const operationalSectionLink = node({ href: "/course/section.php?id=153820" }, "Ir a sección");
+const independentSectionScope = {
+  id: "", getAttribute: () => null, querySelector: () => null,
+  querySelectorAll: (selector) => selector === core.selectors.sectionLinks ? [independentSectionLink, operationalSectionLink] : []
+};
+const independentModules = core.scanModules(independentSectionScope, { location: { href: "https://moodle.uip.edu.pa/course/view.php?id=8199" } }, []);
+assert.equal(independentModules.length, 2);
+assert.equal(independentModules[0].id, "153819");
+assert.equal(independentModules[0].name, "Unidad 2");
+assert.equal(independentModules[1].name, null);
 
 let moduleCalls = 0;
 const originalScanModules = core.scanModules;
@@ -184,8 +216,20 @@ core.findFeedback = originalFindFeedback;
 core.findMainContent = originalFindMainContent;
 core.findDashboardScope = originalFindDashboardScope;
 
+const originalFindCurrentSection = core.findCurrentSection;
+core.findMainContent = () => ({ querySelectorAll: () => [] });
+core.findCurrentSection = () => null;
+core.scanActivities = () => [{ id: "2059248", type: "feedback" }];
+const fallbackSectionScan = core.scanDocument({ location: { pathname: "/course/section.php", href: "https://moodle.uip.edu.pa/course/section.php?id=153818" }, querySelector: () => null });
+assert.equal(fallbackSectionScan.currentSection.id, "153818");
+assert.equal(fallbackSectionScan.modules.length, 1);
+assert.equal(fallbackSectionScan.activities.length, 1);
+core.findCurrentSection = originalFindCurrentSection;
+core.findMainContent = originalFindMainContent;
+core.scanActivities = originalScanActivities;
+
 const diagnostic = core.sanitizeDiagnostic({
-  pageType: "COURSE", partial: false,
+  scannerVersion: "0.1.1", pageType: "COURSE", partial: false,
   course: { id: "1", name: "Course", url: "https://moodle.uip.edu.pa/course/view.php?id=1&sesskey=secret&lang=es" },
   courses: [], modules: [], activities: [{ id: "1", name: "x".repeat(500), type: "feedback", url: "https://moodle.uip.edu.pa/mod/feedback/view.php?id=1" }], feedback: [], errors: []
 });
@@ -193,4 +237,7 @@ assert.equal(diagnostic.course.url, "https://moodle.uip.edu.pa/course/view.php?i
 assert.equal(JSON.stringify(diagnostic).includes("secret"), false);
 assert.equal(JSON.stringify(diagnostic).includes("lang=es"), false);
 assert.equal(diagnostic.activities[0].name.length, 160);
+assert.equal(diagnostic.scannerVersion, "0.1.1");
+assert.equal(core.isCompatibleScan({ scannerVersion: core.VERSION }), true);
+assert.equal(core.isCompatibleScan({ scannerVersion: "0.1.1" }), false);
 console.log("core smoke tests passed");

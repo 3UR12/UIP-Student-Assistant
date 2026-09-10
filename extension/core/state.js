@@ -2,7 +2,7 @@
 (function attachState(global) {
   const core = global.UIPScannerCore = global.UIPScannerCore || {};
 
-  core.VERSION = "0.1.1";
+  core.VERSION = "0.1.2";
   core.selectors = {
     courseLinks: 'a[href*="/course/view.php"]',
     courseBreadcrumbLinks: '#page-navbar a[href*="/course/view.php"], .breadcrumb a[href*="/course/view.php"], nav[aria-label="breadcrumb"] a[href*="/course/view.php"]',
@@ -11,7 +11,7 @@
     sectionContainers: '[data-for="course_section"], [data-sectionid], .course-section, li[id^="section-"], .section[id^="section-"]',
     activityContainers: '.activity, [data-activityname], [data-activity-id]',
     restricted: '.availabilityinfo, .availability, .restricted, [data-availability], .dimmed',
-    completion: '.completioninfo, .completion-status, [data-completion], [data-for="completioninfo"], [data-region="completion"]',
+    completion: '.completioninfo, .completion-status, [data-completion], [data-for="completioninfo"], [data-region="completion"], [data-region="completion-info"], [data-for="completion-info"]',
     courseName: '.coursename, .course-title, [data-region="course-content"] h1, #page-header h1, h1'
   };
 
@@ -55,6 +55,10 @@
     return Boolean(core.closest(element, 'nav, aside, footer, #page-footer, #page-navbar, .sidebar, .drawer, [data-region="drawer"], [data-region="courseindex"], .block_navigation, .block_settings'));
   };
 
+  core.isCompatibleScan = function isCompatibleScan(scan) {
+    return Boolean(scan && scan.scannerVersion === core.VERSION);
+  };
+
   core.isDomVisible = function isDomVisible(element) {
     if (!element) return false;
     let current = element;
@@ -83,9 +87,11 @@
     return { available: null, locked: null, restrictionText: null };
   };
 
-  core.completionFor = function completionFor(element) {
+  core.completionFor = function completionFor(element, cmid) {
     if (!element) return "unknown";
-    const node = element.querySelector(core.selectors.completion);
+    const nodes = element.querySelectorAll ? Array.from(element.querySelectorAll(core.selectors.completion)) : [element.querySelector(core.selectors.completion)].filter(Boolean);
+    const related = cmid && nodes.filter((node) => ["data-cmid", "data-activity-id", "data-module-id"].some((attribute) => node.getAttribute(attribute) === String(cmid)));
+    const node = related && related.length ? related[0] : (cmid && nodes.length !== 1 ? null : nodes[0]);
     if (!node) return "unknown";
     const evidence = [node.getAttribute && node.getAttribute("aria-label"), core.text(node, 200), node.className]
       .filter(Boolean).join(" ").toLowerCase();

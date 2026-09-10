@@ -22,7 +22,7 @@
   core.sanitizeDiagnostic = function sanitizeDiagnostic(scan) {
     const course = scan.course && { id: scan.course.id || null, name: cleanLabel(scan.course.name), rawName: cleanLabel(scan.course.rawName), displayName: cleanLabel(scan.course.displayName), url: cleanUrl(scan.course.url) };
     return {
-      scannerVersion: core.VERSION,
+      scannerVersion: typeof scan.scannerVersion === "string" ? scan.scannerVersion : null,
       pageType: ["AREA_PERSONAL", "COURSE", "SECTION", "FEEDBACK", "OTHER"].includes(scan.pageType) ? scan.pageType : "OTHER",
       partial: Boolean(scan.partial),
       course: course || null,

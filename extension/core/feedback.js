@@ -1,6 +1,11 @@
 /* Feedback is determined by the Moodle module URL; labels are intentionally ignored. */
 (function attachFeedback(global) {
   const core = global.UIPScannerCore = global.UIPScannerCore || {};
+  core.activityPageName = function activityPageName(document, scope) {
+    const breadcrumb = document.querySelector('#page-navbar [aria-current="page"], .breadcrumb [aria-current="page"], #page-navbar .active, .breadcrumb .active');
+    const heading = scope && scope.querySelector('[data-region="activity-information"] .activityname, [data-region="activity-information"] h1, .activity-header .activityname, .activity-header h1, [data-activityname]');
+    return core.text(breadcrumb || heading, 160);
+  };
   core.feedbackPageContext = function feedbackPageContext(document, scope) {
     const current = core.canonicalActivityFromUrl(document.location.href, document.location.href);
     const currentId = core.idFromUrl(document.location.href, document.location.href);
@@ -15,10 +20,9 @@
     const responseUrl = responseLink
       ? core.canonicalMoodleUrl(responseLink.getAttribute("href"), document.location.href, "/mod/feedback/complete.php")
       : currentIsResponse ? core.canonicalMoodleUrl(document.location.href, document.location.href, "/mod/feedback/complete.php") : null;
-    const nameNode = (scope && scope.querySelector('[data-region="activity-information"] h1, .activity-header h1, h1')) || document.querySelector('#page-header h1');
-    const name = core.text(nameNode, 160);
+    const name = core.activityPageName(document, scope);
     const available = core.restriction(scope, { navigable: Boolean(url) }).available;
-    return { id: currentId, name, url, completionState: core.completionFor(scope), available, required: null, position: 1, canRespond: Boolean(responseUrl && (!responseLink || core.isDomVisible(responseLink))), responseUrl };
+    return { id: currentId, name, url, completionState: core.completionFor(scope, currentId), available, required: null, position: 1, canRespond: Boolean(responseUrl && (!responseLink || core.isDomVisible(responseLink))), responseUrl };
   };
   core.findFeedback = function findFeedback(activities, _document, errors) {
     return activities.filter((activity) => activity.type === "feedback").map((activity) => {

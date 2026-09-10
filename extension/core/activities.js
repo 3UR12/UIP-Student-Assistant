@@ -1,7 +1,7 @@
 /* Activity links are classified from Moodle's URL path, not their displayed label. */
 (function attachActivities(global) {
   const core = global.UIPScannerCore = global.UIPScannerCore || {};
-  const types = new Set(["feedback", "assign", "quiz", "forum", "resource", "url", "lesson", "workshop", "page", "folder"]);
+  const types = new Set(["feedback", "assign", "quiz", "forum", "resource", "url", "lesson", "workshop", "page", "folder", "attendance"]);
   core.classifyActivity = function classifyActivity(url) {
     const match = String(url || "").match(/\/mod\/([^/?#]+)/i);
     const raw = match ? match[1].toLowerCase() : "";
@@ -56,7 +56,7 @@
         const key = `${canonical.type}:${canonical.id}`;
         const name = core.activityNameFrom(activity, link);
         const restriction = core.restriction(activity, { navigable: Boolean(activity && core.isDomVisible(activity) && core.isDomVisible(link)) });
-        const candidate = { id: canonical.id, name, type: canonical.type, url: canonical.url, completionState: core.completionFor(activity), available: restriction.available, restrictionText: restriction.restrictionText, position: position + 1, nameQuality: activity && core.activityNameFrom(activity, null) ? 2 : 1 };
+        const candidate = { id: canonical.id, name, type: canonical.type, url: canonical.url, completionState: core.completionFor(activity, canonical.id), available: restriction.available, restrictionText: restriction.restrictionText, position: position + 1, nameQuality: activity && core.activityNameFrom(activity, null) ? 2 : 1 };
         const existing = found.get(key);
         if (!existing || candidate.nameQuality > existing.nameQuality) found.set(key, candidate);
       } catch (_) { core.captureError(errors, "activity"); }
@@ -72,7 +72,7 @@
         const key = id ? `${type}:${id}` : `container:${type}:${name.toLowerCase()}`;
         if (found.has(key)) return;
         const restriction = core.restriction(container);
-        found.set(key, { id, name, type, url: null, completionState: core.completionFor(container), available: restriction.available, restrictionText: restriction.restrictionText, position: found.size + 1, nameQuality: 2 });
+        found.set(key, { id, name, type, url: null, completionState: core.completionFor(container, id), available: restriction.available, restrictionText: restriction.restrictionText, position: found.size + 1, nameQuality: 2 });
       } catch (_) { core.captureError(errors, "activity-container"); }
     });
     return Array.from(found.values()).map(({ nameQuality, ...activity }) => activity);
