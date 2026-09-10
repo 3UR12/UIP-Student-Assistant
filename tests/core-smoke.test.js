@@ -3,10 +3,10 @@ const assert = require("assert");
 const fs = require("fs");
 const vm = require("vm");
 
-const context = { globalThis: {}, URL, Set };
+const context = { globalThis: {}, URL, Set, Event };
 context.globalThis = context;
 vm.createContext(context);
-["state.js", "moodle.js", "courses.js", "modules.js", "activities.js", "feedback.js", "sanitize.js"].forEach((file) => {
+["state.js", "moodle.js", "courses.js", "modules.js", "activities.js", "feedback.js", "feedback-form.js", "sanitize.js"].forEach((file) => {
   vm.runInContext(fs.readFileSync(`extension/core/${file}`, "utf8"), context, { filename: file });
 });
 
@@ -146,6 +146,7 @@ const feedbackDocument = {
 };
 const feedbackPage = core.feedbackPageContext(feedbackDocument, feedbackScope);
 assert.equal(feedbackPage.id, "2059248");
+assert.equal(feedbackPage.name, "Envíanos tu Opinión3");
 assert.equal(feedbackPage.responseUrl, "https://moodle.uip.edu.pa/mod/feedback/complete.php?id=2059248");
 assert.equal(feedbackPage.canRespond, true);
 assert.equal(feedbackPage.completionState, "incomplete");
@@ -154,6 +155,9 @@ const activitySpecificHeading = node({}, "Envíanos tu Opinión3");
 const genericCourseHeading = node({}, "Nombre completo del curso");
 assert.equal(core.activityPageName({ querySelector: () => null }, { querySelector: () => activitySpecificHeading }), "Envíanos tu Opinión3");
 assert.equal(core.activityPageName({ querySelector: () => null, genericCourseHeading }, { querySelector: () => null }), null);
+const completionBreadcrumb = node({}, "Por hacer: Enviar retroalimentación");
+assert.equal(core.activityPageName({ querySelector: () => completionBreadcrumb }, { querySelector: () => null }), null);
+assert.equal(core.activityPageName({ querySelector: () => null }, { querySelector: () => null }), null);
 
 const completionNode = { textContent: "Hecho: Enviar retroalimentación", className: "", getAttribute: () => null };
 assert.equal(core.completionFor({ querySelector: () => completionNode }), "completed");
@@ -240,4 +244,158 @@ assert.equal(diagnostic.activities[0].name.length, 160);
 assert.equal(diagnostic.scannerVersion, "0.1.1");
 assert.equal(core.isCompatibleScan({ scannerVersion: core.VERSION }), true);
 assert.equal(core.isCompatibleScan({ scannerVersion: "0.1.1" }), false);
+
+const formLabel = (forId, text) => ({ htmlFor: forId, textContent: text, getAttribute: () => null, style: {}, parentElement: null });
+const formQuestion = (text) => ({
+  textContent: "", style: {}, parentElement: null, getAttribute: () => null,
+  querySelector: () => ({ textContent: text, getAttribute: () => null })
+});
+const requiredIndicator = (attributes) => ({ tagName: "I", textContent: "Campo obligatorio", getAttribute: (name) => attributes[name] || null });
+const requiredInput = { required: false, getAttribute: () => null };
+const questionTextNode = { nodeType: 3, textContent: "La calidad del contenido del tema fue..." };
+const requiredIcon = requiredIndicator({ title: "Campo obligatorio" });
+const questionLabelWithIndicator = { tagName: "DIV", childNodes: [questionTextNode, requiredIcon], getAttribute: () => null };
+const requiredQuestionContainer = {
+  getAttribute: () => null,
+  querySelector: () => questionLabelWithIndicator,
+  querySelectorAll: () => [requiredIcon]
+};
+assert.equal(core.feedbackQuestionLabel(requiredQuestionContainer), "La calidad del contenido del tema fue...");
+assert.equal(core.feedbackRequired([requiredInput], requiredQuestionContainer), true);
+const ariaRequiredIcon = requiredIndicator({ "aria-label": "Campo obligatorio" });
+assert.equal(core.feedbackRequired([requiredInput], { getAttribute: () => null, querySelectorAll: () => [ariaRequiredIcon] }), true);
+const redIconWithoutText = { tagName: "I", className: "text-danger", getAttribute: () => null };
+assert.equal(core.feedbackRequired([requiredInput], { getAttribute: () => null, querySelectorAll: () => [redIconWithoutText] }), null);
+assert.equal(core.feedbackRequired([requiredInput], { getAttribute: () => null, querySelectorAll: () => [] }), null);
+assert.equal(core.feedbackQuestionLabel({ querySelector: () => ({ textContent: "Pregunta literal <i class=\"icon\" title=\"Campo obligatorio\"></i>", getAttribute: () => null }) }), "Pregunta literal");
+const events = [];
+const formInputs = [];
+const syntheticInput = (name, id, value, question, options) => {
+  const input = { type: "radio", name, id, value, checked: Boolean(options && options.checked), required: Boolean(options && options.required), disabled: Boolean(options && options.disabled), style: options && options.style || {}, parentElement: question,
+    getAttribute: (attribute) => options && options.attributes && options.attributes[attribute] || null,
+    closest: () => question,
+    dispatchEvent: (event) => events.push(`${id}:${event.type}`)
+  };
+  formInputs.push(input);
+  return input;
+};
+const q1 = formQuestion("Pregunta uno");
+const q2 = formQuestion("Pregunta dos");
+const q3 = formQuestion("Pregunta tres");
+const q4 = formQuestion("Pregunta cuatro");
+const q1Excellent = syntheticInput("q1", "q1-ex", "value-9", q1, { required: true });
+const q1VeryGood = syntheticInput("q1", "q1-mb", "value-7", q1);
+const q2VeryGood = syntheticInput("q2", "q2-mb", "other-value", q2);
+const q2Good = syntheticInput("q2", "q2-b", "selected-value", q2, { checked: true });
+const q3VeryGood = syntheticInput("q3", "q3-mb", "third-value", q3);
+const q3Good = syntheticInput("q3", "q3-b", "another-value", q3);
+const q4VeryGood = syntheticInput("q4", "q4-mb", "already-value", q4, { checked: true });
+const q1VeryGoodHidden = syntheticInput("q1", "q1-mb-hidden", "hidden-value", q1, { style: { display: "none" } });
+const q1VeryGoodDisabled = syntheticInput("q1", "q1-mb-disabled", "disabled-value", q1, { disabled: true });
+const labelsForForm = [formLabel("q1-ex", "Excelente"), formLabel("q1-mb", "Muy Bueno"), formLabel("q1-mb-hidden", "Muy Bueno"), formLabel("q1-mb-disabled", "Muy Bueno"), formLabel("q2-mb", "Muy Bueno"), formLabel("q2-b", "Bueno"), formLabel("q3-mb", "Muy Bueno"), formLabel("q3-b", "Bueno"), formLabel("q4-mb", "Muy Bueno")];
+const protectedManual = (tagName, type, name, checked) => {
+  const input = { tagName, type, name, id: name, checked: Boolean(checked), style: {}, parentElement: formQuestion(name), getAttribute: () => null, closest: () => formQuestion(name) };
+  Object.defineProperty(input, "value", { get() { throw new Error(`${name} value must not be read`); } });
+  return input;
+};
+const manualText = protectedManual("TEXTAREA", "textarea", "comment", false);
+const manualInput = protectedManual("INPUT", "text", "short-answer", false);
+const manualSelect = protectedManual("SELECT", "select-one", "choice", false);
+const manualCheckbox = { tagName: "INPUT", type: "checkbox", name: "consent", id: "consent", checked: false, style: {}, parentElement: formQuestion("Consentimiento"), getAttribute: () => null, closest: () => formQuestion("Consentimiento") };
+const hiddenInput = { type: "hidden", value: "synthetic-hidden-value" };
+let radioOrder = formInputs;
+const syntheticForm = {
+  style: {}, parentElement: null, getAttribute: () => null,
+  querySelector(selector) { return selector.includes("input") ? formInputs[0] : null; },
+  querySelectorAll(selector) {
+    if (selector === 'input[type="radio"]') return radioOrder;
+    if (selector === "label") return labelsForForm;
+    if (selector.includes("textarea")) return [manualText, manualInput, manualSelect, manualCheckbox];
+    return [];
+  },
+  contains(input) { return formInputs.includes(input); },
+  submit() { throw new Error("submit must not be called"); }
+};
+const responseDocument = {
+  location: { href: "https://moodle.uip.edu.pa/mod/feedback/complete.php?id=synthetic-feedback", pathname: "/mod/feedback/complete.php" },
+  querySelectorAll: () => [syntheticForm]
+};
+const viewDocument = { location: { href: "https://moodle.uip.edu.pa/mod/feedback/view.php?id=synthetic-feedback", pathname: "/mod/feedback/view.php" }, querySelectorAll: () => [syntheticForm] };
+assert.equal(core.inspectFeedbackForm(viewDocument), null);
+const inspectedForm = core.inspectFeedbackForm(responseDocument);
+assert.equal(inspectedForm.id, "synthetic-feedback");
+assert.equal(inspectedForm.questions.length, 8);
+assert.equal(inspectedForm.supportedQuestions, 4);
+assert.equal(inspectedForm.unsupportedQuestions, 4);
+assert.equal(inspectedForm.questions[0].options[1].label, "Muy Bueno");
+assert.equal(inspectedForm.questions[0].options[1].value, "value-7");
+assert.equal(inspectedForm.questions[1].answered, true);
+assert.equal(inspectedForm.questions[0].required, true);
+assert.equal(inspectedForm.questions[1].required, null);
+assert.equal(inspectedForm.preferenceOptions.includes("Muy Bueno"), true);
+assert.equal(inspectedForm.preferenceOptions.includes("Bueno"), false);
+assert.equal(inspectedForm.canPrefill, true);
+assert.equal(typeof inspectedForm.signature, "string");
+assert.equal(inspectedForm.signature.includes("value-7"), false);
+assert.equal(inspectedForm.signature.includes("hidden-value"), false);
+assert.equal(inspectedForm.questions.find((item) => item.id === "comment").answered, null);
+assert.equal(inspectedForm.questions.find((item) => item.id === "short-answer").answered, null);
+assert.equal(inspectedForm.questions.find((item) => item.id === "choice").answered, null);
+assert.equal(inspectedForm.questions.find((item) => item.id === "consent").answered, false);
+assert.equal(core.feedbackPrefillPreview(inspectedForm, "Muy Bue").preference, null);
+const preview = core.feedbackPrefillPreview(inspectedForm, "Muy Bueno");
+assert.equal(preview.changed, 2);
+assert.equal(preview.skippedExisting, 1);
+assert.equal(preview.missingOption, 0);
+assert.equal(core.prefillFeedbackForm(responseDocument, "Muy Bueno", "synthetic-feedback", 99, inspectedForm.signature).changed, 0);
+
+labelsForForm.find((label) => label.htmlFor === "q4-mb").textContent = "Excelente";
+const noCommonPreference = core.inspectFeedbackForm(responseDocument);
+assert.deepEqual(noCommonPreference.preferenceOptions, []);
+assert.equal(noCommonPreference.canPrefill, false);
+labelsForForm.find((label) => label.htmlFor === "q4-mb").textContent = "Muy Bueno";
+
+q4VeryGood.name = "q4-different";
+const differentQuestion = core.prefillFeedbackForm(responseDocument, "Muy Bueno", "synthetic-feedback", inspectedForm.questions.length, inspectedForm.signature);
+assert.equal(differentQuestion.changed, 0);
+assert.equal(differentQuestion.staleForm, true);
+assert.equal(differentQuestion.reason, "form-changed");
+assert.equal(q1VeryGood.checked, false);
+q4VeryGood.name = "q4";
+
+labelsForForm.find((label) => label.htmlFor === "q3-mb").textContent = "Excelente";
+const differentOptions = core.prefillFeedbackForm(responseDocument, "Muy Bueno", "synthetic-feedback", inspectedForm.questions.length, inspectedForm.signature);
+assert.equal(differentOptions.changed, 0);
+assert.equal(differentOptions.reason, "form-changed");
+assert.equal(q1VeryGood.checked, false);
+labelsForForm.find((label) => label.htmlFor === "q3-mb").textContent = "Muy Bueno";
+
+radioOrder = formInputs.slice().reverse();
+const differentOrder = core.prefillFeedbackForm(responseDocument, "Muy Bueno", "synthetic-feedback", inspectedForm.questions.length, inspectedForm.signature);
+assert.equal(differentOrder.changed, 0);
+assert.equal(differentOrder.reason, "form-changed");
+assert.equal(q1VeryGood.checked, false);
+radioOrder = formInputs;
+
+const prefill = core.prefillFeedbackForm(responseDocument, "Muy Bueno", "synthetic-feedback", inspectedForm.questions.length, inspectedForm.signature);
+assert.equal(prefill.changed, 2);
+assert.equal(prefill.skippedExisting, 1);
+assert.equal(prefill.alreadyMatching, 1);
+assert.equal(prefill.missingOption, 0);
+assert.equal(prefill.unsupported, 4);
+assert.equal(prefill.submitted, false);
+assert.equal(q1VeryGood.checked, true);
+assert.equal(q2Good.checked, true);
+assert.equal(q3VeryGood.checked, true);
+assert.equal(q3Good.checked, false);
+assert.equal(q1VeryGoodHidden.checked, false);
+assert.equal(q1VeryGoodDisabled.checked, false);
+assert.deepEqual(events, ["q1-mb:input", "q1-mb:change", "q3-mb:input", "q3-mb:change"]);
+const formDiagnostic = core.sanitizeDiagnostic({ scannerVersion: core.VERSION, pageType: "FEEDBACK", feedbackForm: inspectedForm, courses: [], modules: [], activities: [], feedback: [], errors: [] });
+assert.equal(JSON.stringify(formDiagnostic).includes("synthetic-hidden-value"), false);
+assert.equal(JSON.stringify(formDiagnostic).includes("value-7"), false);
+assert.equal(JSON.stringify(formDiagnostic).includes("comment"), true);
+assert.equal(Object.hasOwn(formDiagnostic.feedbackForm, "signature"), false);
+assert.equal(formDiagnostic.feedbackForm.questions.find((item) => item.id === "comment").answered, null);
+assert.equal(formDiagnostic.feedbackForm.questions.find((item) => item.id === "consent").answered, false);
 console.log("core smoke tests passed");

@@ -1,10 +1,17 @@
 /* Feedback is determined by the Moodle module URL; labels are intentionally ignored. */
 (function attachFeedback(global) {
   const core = global.UIPScannerCore = global.UIPScannerCore || {};
+  const completionControlText = (value) => {
+    const text = typeof value === "string" ? value.replace(/\s+/g, " ").trim().toLocaleLowerCase() : "";
+    return /^(por hacer|hecho|pendiente)\s*:/.test(text) || /\benviar retroalimentaci[oó]n\b/.test(text);
+  };
   core.activityPageName = function activityPageName(document, scope) {
-    const breadcrumb = document.querySelector('#page-navbar [aria-current="page"], .breadcrumb [aria-current="page"], #page-navbar .active, .breadcrumb .active');
     const heading = scope && scope.querySelector('[data-region="activity-information"] .activityname, [data-region="activity-information"] h1, .activity-header .activityname, .activity-header h1, [data-activityname]');
-    return core.text(breadcrumb || heading, 160);
+    const headingName = core.text(heading, 160);
+    if (headingName && !completionControlText(headingName)) return headingName;
+    const breadcrumb = document.querySelector('#page-navbar [aria-current="page"], .breadcrumb [aria-current="page"], #page-navbar .active, .breadcrumb .active');
+    const breadcrumbName = core.text(breadcrumb, 160);
+    return breadcrumbName && !completionControlText(breadcrumbName) ? breadcrumbName : null;
   };
   core.feedbackPageContext = function feedbackPageContext(document, scope) {
     const current = core.canonicalActivityFromUrl(document.location.href, document.location.href);

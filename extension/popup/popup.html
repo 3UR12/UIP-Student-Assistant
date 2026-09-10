@@ -10,11 +10,19 @@
     <main>
       <header>
         <h1>UIP Student Assistant</h1>
-        <p>v0.1.2 · Moodle Scanner</p>
+        <p>v0.2.0 · Moodle Scanner</p>
       </header>
       <p id="status" class="status">Listo para analizar la pestaña actual.</p>
       <button id="scan" type="button">Escanear página actual</button>
       <section id="summary" class="hidden" aria-live="polite"></section>
+      <section id="assistant" class="assistant hidden" aria-live="polite">
+        <h2>Feedback Assistant</h2>
+        <p id="assistant-summary"></p>
+        <label for="preference">Valoración preferida</label>
+        <select id="preference" disabled><option value="">Sin seleccionar</option></select>
+        <button id="prefill" type="button" disabled>Preseleccionar respuestas</button>
+        <p id="prefill-status" class="assistant-status"></p>
+      </section>
       <details id="details" class="hidden">
         <summary>Detalles detectados</summary>
         <pre id="result"></pre>
@@ -27,6 +35,7 @@
     <script src="../core/modules.js"></script>
     <script src="../core/activities.js"></script>
     <script src="../core/feedback.js"></script>
+    <script src="../core/feedback-form.js"></script>
     <script src="../core/sanitize.js"></script>
     <script src="popup.js"></script>
   </body>
