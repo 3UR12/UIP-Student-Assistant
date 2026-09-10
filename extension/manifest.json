@@ -8,9 +8,6 @@
     "default_title": "UIP Student Assistant",
     "default_popup": "popup/popup.html"
   },
-  "background": {
-    "service_worker": "background.js"
-  },
   "content_scripts": [
     {
       "matches": ["https://moodle.uip.edu.pa/*"],

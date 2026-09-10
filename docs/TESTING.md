@@ -25,7 +25,7 @@ An authenticated Moodle UIP session is required for meaningful real-world valida
 
 - **Popup:** on the extension card, select **Inspect views** next to the popup while it is open; alternatively right-click inside the popup and choose Inspect.
 - **Moodle content script:** open Moodle, press `F12`, and use the page's **Console**. Content-script errors are associated with that page's extension context.
-- **Extension/service worker:** in `edge://extensions` or `chrome://extensions`, select **Inspect views** / **service worker** on the UIP Student Assistant card.
+- **Extension:** in `edge://extensions` or `chrome://extensions`, use the extension card to reload the package and inspect any reported manifest errors. v0.1.0 has no service worker.
 - **Manifest errors:** reload the extension from its card after source changes and read the error text shown on that card.
 
 The extension has no automated authenticated test because it must not receive or store a user's Moodle session. Run the static validation commands below before a manual test.

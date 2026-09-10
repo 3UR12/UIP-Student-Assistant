@@ -4,7 +4,7 @@
 
 `extension/core/` is the generic scanner. Its modules accept a DOM `Document`, use only standard browser DOM APIs, and publish a structured result through `UIPScannerCore`. They do not reference `chrome`, browser storage, network APIs, credentials, or UI elements.
 
-`extension/content/content.js` is a thin, passive integration layer. It scans only after the popup sends an explicit message. `extension/popup/` presents the result and copies only an allow-listed diagnostic. `background.js` has no business logic and makes no requests.
+`extension/content/content.js` is a thin, passive integration layer. It scans only after the popup sends an explicit message. `extension/popup/` presents the result and copies only an allow-listed diagnostic. v0.1.0 does not need a background service worker.
 
 The generic core is stored inside `extension/` rather than at repository root because Chromium's **Load unpacked** operation treats the selected `extension/` directory as the extension package and cannot load scripts from its parent directory. This retains the core/extension code boundary without copying source files or adding a bundler.
 
