@@ -1,12 +1,12 @@
 # Security and privacy
 
-UIP Student Assistant v0.2.0 is a local DOM scanner with an explicit, limited Feedback radio-prefill action.
+UIP Student Assistant v0.3.0 is a local DOM scanner with limited Feedback radio-prefill, controlled submission, and controlled Continue actions.
 
 ## What it does not do
 
 - It never asks for, stores, reads, or transmits credentials.
 - It does not read cookies, tokens, `sesskey`, login form values, private messages, avatars, or full Moodle HTML.
-- It does not submit forms, click controls, write text, complete activities, navigate pages, or modify Moodle outside the response form currently open. With an explicit popup action it may set only compatible, unanswered radio inputs in that scoped form and dispatch `input`/`change`.
+- It does not write text, fabricate requests, or modify Moodle outside the response form currently open. With an explicit popup action it may set only compatible unanswered radios. Only after a separate review and confirmation may it click one visible, enabled, uniquely identified Moodle `type=submit` control in that same revalidated form. A detected Moodle Continue link similarly needs its own explicit, revalidated action.
 - It does not use `fetch`, external services, AI APIs, analytics, telemetry, a backend, cloud storage, or a database.
 - It does not take screenshots or save scans locally.
 
@@ -22,6 +22,6 @@ There are no API permissions, nor `<all_urls>`, cookie, storage, identity, webRe
 
 ## Diagnostic export
 
-`sanitizeDiagnostic` is an explicit allow-list step run before display and before copying. It permits only scanner metadata, structural course/module/activity fields, safe Feedback-form question/option labels and selected state, Moodle URLs stripped to their `id` query parameter, fixed error messages, and limited text labels. It excludes hidden inputs, radio values, text-input values, session/cookie/token data, form actions, raw HTML, and page text. Email-shaped text is redacted defensively.
+`sanitizeDiagnostic` is an explicit allow-list step run before display and before copying. It permits only scanner metadata, safe Feedback submission readiness, result state, and structural navigation metadata; Moodle URLs are stripped to their `id` parameter. It excludes form signatures, hidden inputs, radio values, text-input values, session/cookie/token data, form actions, raw HTML, and page text. Email-shaped text is redacted defensively.
 
 Do not add real Moodle captures, copied diagnostics, screenshots, or student data to the repository. `.gitignore` excludes the local directories intended for such material.

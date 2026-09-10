@@ -10,7 +10,7 @@
     <main>
       <header>
         <h1>UIP Student Assistant</h1>
-        <p>v0.2.0 · Moodle Scanner</p>
+        <p>v0.3.0 · Controlled Feedback Navigator</p>
       </header>
       <p id="status" class="status">Listo para analizar la pestaña actual.</p>
       <button id="scan" type="button">Escanear página actual</button>
@@ -22,6 +22,23 @@
         <select id="preference" disabled><option value="">Sin seleccionar</option></select>
         <button id="prefill" type="button" disabled>Preseleccionar respuestas</button>
         <p id="prefill-status" class="assistant-status"></p>
+      </section>
+      <section id="submission" class="assistant hidden" aria-live="polite">
+        <h2>Envío controlado</h2>
+        <p id="submission-summary"></p>
+        <button id="review-submit" type="button" disabled>Revisar envío</button>
+        <div id="submit-confirmation" class="hidden">
+          <p id="submit-confirmation-text"></p>
+          <button id="confirm-submit" type="button">Confirmar y enviar</button>
+        </div>
+        <p id="submit-status" class="assistant-status"></p>
+      </section>
+      <section id="navigation" class="assistant hidden" aria-live="polite">
+        <h2>Navegación detectada</h2>
+        <p id="navigation-summary"></p>
+        <button id="inspect-navigation" type="button">Revisar navegación</button>
+        <button id="continue-navigation" type="button" class="hidden">Continuar</button>
+        <p id="navigation-status" class="assistant-status"></p>
       </section>
       <details id="details" class="hidden">
         <summary>Detalles detectados</summary>
@@ -36,6 +53,8 @@
     <script src="../core/activities.js"></script>
     <script src="../core/feedback.js"></script>
     <script src="../core/feedback-form.js"></script>
+    <script src="../core/submission.js"></script>
+    <script src="../core/navigation.js"></script>
     <script src="../core/sanitize.js"></script>
     <script src="popup.js"></script>
   </body>

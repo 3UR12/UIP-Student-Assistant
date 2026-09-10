@@ -1,12 +1,12 @@
 # UIP Student Assistant
 
-UIP Student Assistant is a small browser extension for inspecting the Moodle UIP page the student already has open. Version 0.2.0 preserves the scanner and adds a Feedback Assistant that can locally preselect a user-chosen rating in compatible radio questions on an already-open Feedback response form.
+UIP Student Assistant is a small browser extension for inspecting the Moodle UIP page the student already has open. Version 0.3.0 adds a Controlled Feedback Navigator: it can inspect a fully understood Feedback form, require a second explicit confirmation, and activate Moodle's single validated submit control.
 
-It does not log anyone in, submit forms, click Moodle submit controls, navigate Moodle, use a backend, or send data anywhere. A student must open the Feedback response form manually and manually review and submit any responses.
+It does not log anyone in, fabricate requests, use a backend, or send data anywhere except through Moodle's real visible submit control after two explicit popup actions. It never auto-submits or auto-navigates; the student opens the form, reviews it, confirms submission, and separately confirms any detected Continue link.
 
 ## Current scope
 
-The extension works on `https://moodle.uip.edu.pa/*` and scans only the active page when the user selects **Escanear página actual** in the popup. On `/mod/feedback/complete.php`, it can inspect the scoped form and—only after an explicit user-selected rating and button press—set compatible, unanswered radio controls locally. It never submits the form. Detection is intentionally conservative: unknown or unproven availability/completion states remain `null` or `unknown` rather than being guessed.
+The extension works on `https://moodle.uip.edu.pa/*` and scans only the active page when the user selects **Escanear página actual** in the popup. On `/mod/feedback/complete.php`, it can preselect compatible unanswered radios, then permits the real Moodle submit control only when every supported radio is answered, no manual control exists, and the form and submit control pass a fresh revalidation. Post-submit completion is reported only after a later scan observes evidence. Detection is intentionally conservative: unknown or unproven states remain `null` or `unknown` rather than being guessed.
 
 ## Development installation
 
@@ -30,10 +30,10 @@ Further design notes: [architecture](docs/ARCHITECTURE.md) and [Moodle flow](doc
 
 ## Roadmap
 
-- v0.1 — Moodle Scanner (this release)
+- v0.1 — Moodle Scanner
 - v0.2 — Feedback Assistant
-- v0.3 — Multi-course Processor
-- v0.4 — Activities Dashboard
+- v0.3 — Controlled Feedback Navigator
+- v0.4 — Multi-course Processor
 - v0.5 — Android Prototype
 
 The roadmap is directional; later versions are not implemented or promised by this repository.
