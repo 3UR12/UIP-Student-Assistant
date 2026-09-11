@@ -11,6 +11,7 @@ vm.createContext(context);
 });
 
 const core = context.UIPScannerCore;
+assert.equal(core.VERSION, "0.4.0");
 assert.equal(core.detectPageType({ location: { pathname: "/my/" } }), "AREA_PERSONAL");
 assert.equal(core.detectPageType({ location: { pathname: "/course/view.php" } }), "COURSE");
 assert.equal(core.detectPageType({ location: { pathname: "/course/section.php" } }), "SECTION");
