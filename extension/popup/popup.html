@@ -10,7 +10,7 @@
     <main>
       <header>
         <h1>UIP Student Assistant</h1>
-        <p>v0.3.0 · Controlled Feedback Navigator</p>
+        <p>v0.4.0 · Controlled Multi-Module Processor</p>
       </header>
       <p id="status" class="status">Listo para analizar la pestaña actual.</p>
       <button id="scan" type="button">Escanear página actual</button>
@@ -40,6 +40,21 @@
         <button id="continue-navigation" type="button" class="hidden">Continuar</button>
         <p id="navigation-status" class="assistant-status"></p>
       </section>
+      <section id="workflow" class="assistant hidden" aria-live="polite">
+        <h2>Recorrido de módulos</h2>
+        <p id="workflow-summary"></p>
+        <div id="workflow-planner" class="hidden">
+          <div id="workflow-sections"></div>
+          <label for="workflow-preference">Valoración para esta sesión</label>
+          <select id="workflow-preference"><option value="">Sin seleccionar</option></select>
+          <button id="start-workflow" type="button">Iniciar recorrido</button>
+        </div>
+        <div id="workflow-feedback"></div>
+        <button id="workflow-open" type="button" class="hidden"></button>
+        <button id="workflow-return-course" type="button" class="secondary hidden">Volver al curso</button>
+        <button id="workflow-cancel" type="button" class="secondary hidden">Cancelar recorrido</button>
+        <p id="workflow-status" class="assistant-status"></p>
+      </section>
       <details id="details" class="hidden">
         <summary>Detalles detectados</summary>
         <pre id="result"></pre>
@@ -55,7 +70,9 @@
     <script src="../core/feedback-form.js"></script>
     <script src="../core/submission.js"></script>
     <script src="../core/navigation.js"></script>
+    <script src="../core/workflow-navigation.js"></script>
     <script src="../core/sanitize.js"></script>
+    <script src="workflow-session.js"></script>
     <script src="popup.js"></script>
   </body>
 </html>

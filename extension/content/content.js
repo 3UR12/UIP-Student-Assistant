@@ -69,5 +69,47 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     } catch (_) { sendResponse({ ok: false, error: "The continuation link was not followed." }); }
     return false;
   }
+  if (message.type === "UIP_INSPECT_WORKFLOW_NAVIGATION") {
+    try {
+      const expected = message.expected;
+      if (!expected || !["section", "feedback", "response-form", "course-breadcrumb"].includes(expected.kind) || typeof expected.targetId !== "string" || !/^\d+$/.test(expected.targetId) || typeof expected.courseId !== "string" || !/^\d+$/.test(expected.courseId)) {
+        sendResponse({ ok: false, error: "Invalid workflow navigation request." });
+        return false;
+      }
+      const scan = globalThis.UIPScannerCore.scanDocument(document);
+      const expectedPage = { section: "COURSE", feedback: "SECTION", "response-form": "FEEDBACK" }[expected.kind];
+      if (expectedPage && scan.pageType !== expectedPage) {
+        sendResponse({ ok: true, navigation: { detected: false, unique: false, action: null }, scan });
+        return false;
+      }
+      const scope = globalThis.UIPScannerCore.findMainContent(document);
+      const navigation = globalThis.UIPScannerCore.inspectWorkflowNavigation(document, scope, expected);
+      sendResponse({ ok: true, navigation, scan });
+    } catch (_) { sendResponse({ ok: false, error: "The workflow navigation could not be inspected." }); }
+    return false;
+  }
+  if (message.type === "UIP_NAVIGATE_WORKFLOW") {
+    try {
+      const expected = message.expected;
+      if (!expected || !["section", "feedback", "response-form", "course-breadcrumb"].includes(expected.kind) || typeof expected.targetId !== "string" || !/^\d+$/.test(expected.targetId) || typeof expected.courseId !== "string" || !/^\d+$/.test(expected.courseId)) {
+        sendResponse({ ok: false, error: "Invalid workflow navigation request." });
+        return false;
+      }
+      const scan = globalThis.UIPScannerCore.scanDocument(document);
+      const expectedPage = { section: "COURSE", feedback: "SECTION", "response-form": "FEEDBACK" }[expected.kind];
+      if (expectedPage && scan.pageType !== expectedPage) {
+        sendResponse({ ok: true, navigationResult: { navigationTriggered: false, reason: "page-changed" } });
+        return false;
+      }
+      if (expected.kind !== "course-breadcrumb" && (!scan.course || scan.course.id !== expected.courseId)) {
+        sendResponse({ ok: true, navigationResult: { navigationTriggered: false, reason: "course-changed" } });
+        return false;
+      }
+      const scope = globalThis.UIPScannerCore.findMainContent(document);
+      const navigationResult = globalThis.UIPScannerCore.navigateWorkflow(document, scope, expected);
+      sendResponse({ ok: true, navigationResult });
+    } catch (_) { sendResponse({ ok: false, error: "The workflow navigation could not be activated." }); }
+    return false;
+  }
   return false;
 });
