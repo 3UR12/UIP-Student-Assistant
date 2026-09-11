@@ -4,6 +4,7 @@
   "version": "0.4.0",
   "description": "Moodle UIP scanner and controlled multi-module Feedback workflow.",
   "permissions": ["storage"],
+  "background": { "service_worker": "background/workflow-service.js" },
   "host_permissions": ["https://moodle.uip.edu.pa/*"],
   "action": {
     "default_title": "UIP Student Assistant",
@@ -23,6 +24,7 @@
         "core/submission.js",
         "core/navigation.js",
         "core/workflow-navigation.js",
+        "core/workflow-state.js",
         "core/sanitize.js",
         "content/content.js"
       ],
