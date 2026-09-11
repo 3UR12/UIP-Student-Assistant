@@ -1,8 +1,9 @@
 {
   "manifest_version": 3,
   "name": "UIP Student Assistant",
-  "version": "0.3.0",
-  "description": "Moodle UIP scanner, Feedback preselection, and controlled Feedback navigation.",
+  "version": "0.4.0",
+  "description": "Moodle UIP scanner and controlled multi-module Feedback workflow.",
+  "permissions": ["storage"],
   "host_permissions": ["https://moodle.uip.edu.pa/*"],
   "action": {
     "default_title": "UIP Student Assistant",
@@ -21,6 +22,7 @@
         "core/feedback-form.js",
         "core/submission.js",
         "core/navigation.js",
+        "core/workflow-navigation.js",
         "core/sanitize.js",
         "content/content.js"
       ],
