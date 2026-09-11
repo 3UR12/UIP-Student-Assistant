@@ -6,7 +6,7 @@ const vm = require("vm");
 const context = { globalThis: {}, URL, Set, Event };
 context.globalThis = context;
 vm.createContext(context);
-["state.js", "moodle.js", "courses.js", "modules.js", "activities.js", "feedback.js", "feedback-form.js", "submission.js", "navigation.js", "workflow-navigation.js", "sanitize.js"].forEach((file) => {
+["state.js", "moodle.js", "courses.js", "modules.js", "activities.js", "feedback.js", "feedback-form.js", "submission.js", "navigation.js", "workflow-navigation.js", "workflow-state.js", "sanitize.js"].forEach((file) => {
   vm.runInContext(fs.readFileSync(`extension/core/${file}`, "utf8"), context, { filename: file });
 });
 
@@ -720,17 +720,11 @@ assert.equal(core.navigateWorkflow(workflowDocument, staleWorkflowScope, workflo
 assert.equal(staleWorkflowAnchor.clickCount, 0);
 core.inspectWorkflowNavigation = originalWorkflowInspect;
 
-// The popup-only persistence adapter keeps only its explicit session allow-list.
-const storageCalls = [];
-const sessionContext = { globalThis: {}, URL, Set, chrome: { runtime: { lastError: null }, storage: { session: { get(_key, callback) { callback({}); }, set(value, callback) { storageCalls.push({ set: value }); callback(); }, remove(value, callback) { storageCalls.push({ remove: value }); callback(); } } } } };
-sessionContext.globalThis = sessionContext;
-vm.createContext(sessionContext);
-vm.runInContext(fs.readFileSync("extension/popup/workflow-session.js", "utf8"), sessionContext, { filename: "workflow-session.js" });
-const sessionWorkflow = sessionContext.UIPWorkflowSession;
-const persisted = sessionWorkflow.sanitize({ ...workflowPlan, sections: [{ ...workflowPlan.sections[0], formSignature: "must-not-persist", token: "must-not-persist" }], extra: "must-not-persist" });
+// Pure state is shared; Chrome persistence exists only in the service worker.
+const persisted = core.sanitizeWorkflow({ ...workflowPlan, sections: [{ ...workflowPlan.sections[0], formSignature: "must-not-persist", token: "must-not-persist" }], extra: "must-not-persist" });
 assert.equal(JSON.stringify(persisted).includes("must-not-persist"), false);
-assert.equal(sessionWorkflow.sanitize({ version: 1, active: true, courseId: "9001", preference: "Bueno", sections: [{ id: "7001", url: "https://moodle.uip.edu.pa/course/section.php?id=7001", status: "not-a-status" }], currentSectionId: null }), null);
-assert.equal(fs.readFileSync("extension/popup/workflow-session.js", "utf8").includes("chrome.storage.local"), false);
+assert.equal(core.sanitizeWorkflow({ version: 1, active: true, courseId: "9001", preference: "Bueno", sections: [{ id: "7001", url: "https://moodle.uip.edu.pa/course/section.php?id=7001", status: "not-a-status" }], currentSectionId: null }), null);
+assert.equal(fs.existsSync("extension/popup/workflow-session.js"), false);
 
 // v0.4.0 hydration decisions are pure, deterministic, and ignore stale loads.
 const uiContext = { globalThis: {} };
@@ -738,41 +732,65 @@ uiContext.globalThis = uiContext;
 vm.createContext(uiContext);
 vm.runInContext(fs.readFileSync("extension/popup/workflow-ui-state.js", "utf8"), uiContext, { filename: "workflow-ui-state.js" });
 const workflowUi = uiContext.UIPWorkflowUiState;
-const loadingState = workflowUi.begin(1);
+const loadingState = { epoch: 1, phase: "loading", scan: null, workflow: null, error: null };
 assert.equal(workflowUi.canCopy(loadingState), false);
 assert.equal(workflowUi.canShowPlanner({ pageType: "COURSE", course: { id: "9001" } }, loadingState), false);
-const activeState = workflowUi.hydrate(loadingState, 1, { ok: true, workflow: workflowPlan }).state;
+const activeState = { epoch: 1, phase: "ready", scan: null, workflow: workflowPlan, error: null };
 assert.equal(workflowUi.canCopy(activeState), true);
 assert.equal(activeState.workflow.courseId, "9001");
 assert.equal(workflowUi.diagnosticState(activeState, { active: true, courseId: "9001" }).workflow.courseId, "9001");
-const nullState = workflowUi.hydrate(workflowUi.begin(2), 2, { ok: true, workflow: null }).state;
+const nullState = { epoch: 2, phase: "ready", scan: null, workflow: null, error: null };
 assert.equal(workflowUi.canShowPlanner({ pageType: "COURSE", course: { id: "9001" } }, nullState), true);
-const failedState = workflowUi.hydrate(workflowUi.begin(3), 3, { ok: false, workflow: null }).state;
-assert.equal(failedState.error, true);
+const failedState = { epoch: 3, phase: "error", scan: null, workflow: null, error: "workflow-storage-unavailable" };
+assert.equal(failedState.phase, "error");
 assert.equal(workflowUi.diagnosticState(failedState, null).workflowState, "unavailable");
 assert.equal(workflowUi.canCopy(failedState), false);
 assert.equal(workflowUi.canShowPlanner({ pageType: "COURSE", course: { id: "9001" } }, failedState), false);
-assert.equal(workflowUi.hydrate(workflowUi.begin(5), 4, { ok: true, workflow: workflowPlan }).apply, false);
-const rapidSecond = workflowUi.begin(7);
-assert.equal(workflowUi.hydrate(rapidSecond, 6, { ok: true, workflow: workflowPlan }).apply, false);
-assert.equal(workflowUi.hydrate(rapidSecond, 7, { ok: true, workflow: null }).state.workflow, null);
+assert.equal(workflowUi.isCurrentEpoch({ epoch: 7 }, 6), false);
+assert.equal(workflowUi.isCurrentEpoch({ epoch: 7 }, 7), true);
 assert.equal(workflowUi.canProceedAfterSave({ ok: false, workflow: null }), false);
 assert.equal(workflowUi.canProceedAfterSave({ ok: true, workflow: workflowPlan }), true);
 assert.equal(workflowUi.feedbackViewAction({ pageType: "FEEDBACK", feedbackForm: { detected: true }, feedbackPage: { id: "8801", canRespond: true } }), "form-open");
 assert.equal(workflowUi.feedbackViewAction({ pageType: "FEEDBACK", feedbackForm: null, feedbackPage: { id: "8801", canRespond: true } }), "open-form");
 
 (async () => {
-  const loaded = await sessionWorkflow.load();
-  assert.deepEqual(loaded, { ok: true, workflow: null });
-  const saved = await sessionWorkflow.save({ ...workflowPlan, sections: [{ ...workflowPlan.sections[0], token: "discard" }] });
+  const storageCalls = [];
+  const stored = {};
+  let listener = null;
+  let mismatch = false;
+  let shouldFail = false;
+  const backgroundContext = {
+    globalThis: {}, URL, Set,
+    chrome: {
+      runtime: { onMessage: { addListener(value) { listener = value; } } },
+      storage: { session: {
+        async get(key) { storageCalls.push({ get: key }); if (shouldFail) throw new Error("synthetic"); return mismatch ? { [key]: { ...workflowPlan, preference: "changed" } } : { [key]: stored[key] }; },
+        async set(value) { storageCalls.push({ set: value }); if (shouldFail) throw new Error("synthetic"); Object.assign(stored, value); },
+        async remove(key) { storageCalls.push({ remove: key }); if (shouldFail) throw new Error("synthetic"); delete stored[key]; }
+      } }
+    }
+  };
+  backgroundContext.globalThis = backgroundContext;
+  backgroundContext.importScripts = (path) => vm.runInContext(fs.readFileSync(`extension/background/${path}`, "utf8"), backgroundContext, { filename: path });
+  vm.createContext(backgroundContext);
+  vm.runInContext(fs.readFileSync("extension/background/workflow-service.js", "utf8"), backgroundContext, { filename: "workflow-service.js" });
+  const request = (message) => new Promise((resolve) => listener(message, {}, resolve));
+  assert.deepEqual(await request({ type: "UIP_WORKFLOW_LOAD" }), { ok: true, workflow: null });
+  const saved = await request({ type: "UIP_WORKFLOW_SAVE", workflow: { ...workflowPlan, extra: "discard" } });
   assert.equal(saved.ok, true);
-  assert.deepEqual(Object.keys(storageCalls[0].set), ["uip.workflow.v1"]);
-  const cleared = await sessionWorkflow.clear();
+  assert.deepEqual(Object.keys(storageCalls.find((item) => item.set).set), ["uip.workflow.v1"]);
+  assert.equal(storageCalls.some((item) => item.get === "uip.workflow.v1"), true);
+  assert.equal(JSON.stringify(saved.workflow).includes("discard"), false);
+  assert.deepEqual((await request({ type: "UIP_WORKFLOW_LOAD" })).workflow, saved.workflow);
+  mismatch = true;
+  assert.equal((await request({ type: "UIP_WORKFLOW_SAVE", workflow: workflowPlan })).error, "workflow-save-verification-failed");
+  mismatch = false;
+  const cleared = await request({ type: "UIP_WORKFLOW_CLEAR" });
   assert.equal(cleared.ok, true);
-  assert.equal(storageCalls[1].remove, "uip.workflow.v1");
-  sessionContext.chrome.runtime.lastError = { message: "synthetic failure" };
-  assert.equal((await sessionWorkflow.load()).ok, false);
-  assert.equal((await sessionWorkflow.save(workflowPlan)).ok, false);
-  assert.equal((await sessionWorkflow.clear()).ok, false);
+  assert.equal(storageCalls.some((item) => item.remove === "uip.workflow.v1"), true);
+  shouldFail = true;
+  assert.equal((await request({ type: "UIP_WORKFLOW_LOAD" })).ok, false);
+  assert.equal((await request({ type: "UIP_WORKFLOW_SAVE", workflow: workflowPlan })).ok, false);
+  assert.equal((await request({ type: "UIP_WORKFLOW_CLEAR" })).ok, false);
   console.log("core smoke tests passed");
 })().catch((error) => { console.error(error); process.exitCode = 1; });

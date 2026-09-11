@@ -33,11 +33,8 @@
   const details = document.querySelector("#details");
   const result = document.querySelector("#result");
   const copyButton = document.querySelector("#copy");
-  let lastScan = null;
-  let lastWorkflow = null;
   let plannerCandidates = [];
-  let renderEpoch = 0;
-  let workflowState = globalThis.UIPWorkflowUiState.begin(renderEpoch);
+  let uiState = { epoch: 0, phase: "ready", scan: null, workflow: null, error: null };
 
   const labels = { AREA_PERSONAL: "Área personal", COURSE: "Curso", SECTION: "Módulo", FEEDBACK: "Feedback", OTHER: "Página no reconocida" };
   const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[character]));
@@ -47,11 +44,11 @@
   function setStatus(message) { status.textContent = message; }
   function diagnosticFor(scan) {
     const diagnostic = globalThis.UIPScannerCore.sanitizeDiagnostic(scan);
-    const metadata = globalThis.UIPWorkflowSession && globalThis.UIPWorkflowSession.metadata(lastWorkflow);
-    Object.assign(diagnostic, globalThis.UIPWorkflowUiState.diagnosticState(workflowState, metadata));
+    const metadata = globalThis.UIPScannerCore.workflowMetadata(uiState.workflow);
+    Object.assign(diagnostic, globalThis.UIPWorkflowUiState.diagnosticState(uiState, metadata));
     return diagnostic;
   }
-  function refreshDiagnostic() { if (lastScan) result.textContent = JSON.stringify(diagnosticFor(lastScan), null, 2); }
+  function refreshDiagnostic() { if (uiState.scan) result.textContent = JSON.stringify(diagnosticFor(uiState.scan), null, 2); }
   function activeTab(callback) {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => callback(tabs[0]));
   }
@@ -65,7 +62,7 @@
       option.textContent = label;
       preference.append(option);
     });
-    if (lastWorkflow && form.preferenceOptions.includes(lastWorkflow.preference)) preference.value = lastWorkflow.preference;
+    if (uiState.workflow && form.preferenceOptions.includes(uiState.workflow.preference)) preference.value = uiState.workflow.preference;
     preference.disabled = !form.canPrefill;
     prefillButton.disabled = !form.canPrefill || !form.signature || !preference.value;
     prefillStatus.textContent = "";
@@ -107,17 +104,8 @@
     return `${value.sections.filter((item) => item.status === "completed" || item.status === "no-feedback").length} / ${value.sections.length} módulos revisados`;
   }
   function currentWorkflowSection(value) { return value && value.sections.find((item) => item.id === value.currentSectionId) || null; }
-  async function updateWorkflow(value, epoch) {
-    const saved = await globalThis.UIPWorkflowSession.save(value);
-    if (Number.isInteger(epoch) && epoch !== renderEpoch) return { ok: false, stale: true, workflow: null };
-    if (saved && saved.ok === true) {
-      lastWorkflow = saved.workflow;
-      refreshDiagnostic();
-    }
-    return saved;
-  }
   function navigateWorkflow(value, kind, targetId, beforeNavigate) {
-    if (!value || !targetId || workflowState.loading || workflowState.error) return;
+    if (!value || !targetId || uiState.phase !== "ready") return;
     workflowOpenButton.disabled = true;
     workflowStatus.textContent = "Revalidando el control real de Moodle…";
     const run = () => activeTab((tab) => {
@@ -143,6 +131,8 @@
           workflowOpenButton.disabled = false;
           return;
         }
+        uiState = { ...uiState, workflow: saved.workflow };
+        refreshDiagnostic();
         run();
       }).catch(() => { workflowStatus.textContent = "No se pudo guardar el estado del recorrido. No se navegó."; workflowOpenButton.disabled = false; });
     } else run();
@@ -163,21 +153,22 @@
       }
     });
   }
-  async function renderWorkflow(scan) {
-    const epoch = workflowState.epoch;
-    const value = lastWorkflow;
+  function renderWorkflow(state) {
+    const scan = state.scan;
+    const value = state.workflow;
+    if (!scan) { hide(workflow); return; }
     if (value && scan.feedbackForm) renderAssistant(scan.feedbackForm);
     workflowFeedback.replaceChildren(); hide(workflowPlanner); hide(workflowReturnCourseButton); hide(workflowCancelButton); setWorkflowAction("", null); workflowStatus.textContent = "";
-    if (workflowState.loading) {
+    if (state.phase === "loading") {
       workflowSummary.textContent = "Cargando estado del recorrido…";
-      show(workflow); refreshDiagnostic(); return;
+      show(workflow); return;
     }
-    if (workflowState.error) {
-      workflowSummary.textContent = "No se pudo cargar el estado del recorrido.";
-      show(workflow); refreshDiagnostic(); return;
+    if (state.phase === "error") {
+      workflowSummary.textContent = state.error || "No se pudo cargar el recorrido. Intenta nuevamente.";
+      show(workflow); return;
     }
     if (!value) {
-      if (!globalThis.UIPWorkflowUiState.canShowPlanner(scan, workflowState)) { hide(workflow); refreshDiagnostic(); return; }
+      if (!globalThis.UIPWorkflowUiState.canShowPlanner(scan, state)) { hide(workflow); return; }
       plannerCandidates = globalThis.UIPScannerCore.workflowPlanCandidates(scan.course, scan.modules || []);
       if (!plannerCandidates.length) { hide(workflow); refreshDiagnostic(); return; }
       workflowSections.replaceChildren();
@@ -190,14 +181,14 @@
       });
       workflowPreference.innerHTML = '<option value="">Sin seleccionar</option><option>Excelente</option><option>Muy Bueno</option><option>Bueno</option><option>Satisfactorio</option><option>Puede mejorar</option>';
       workflowSummary.textContent = "Sin recorrido activo. Selecciona módulos verificadamente disponibles y una valoración explícita.";
-      show(workflowPlanner); show(workflow); refreshDiagnostic(); return;
+      show(workflowPlanner); show(workflow); return;
     }
     show(workflowCancelButton); show(workflow);
     const sameCourse = scan.course && scan.course.id === value.courseId;
     if (!sameCourse) {
       workflowSummary.textContent = "Hay un recorrido activo para otro curso. No se modificará ni se navegará automáticamente.";
       if (scan.course) setWorkflowAction("Volver al curso del recorrido", () => navigateWorkflow(value, "course-breadcrumb", value.courseId));
-      refreshDiagnostic(); return;
+      return;
     }
     workflowSummary.textContent = `Recorrido activo · ${workflowProgress(value)}.`;
     if (scan.pageType === "SECTION") {
@@ -206,19 +197,12 @@
         setWorkflowAction("Volver al curso", () => navigateWorkflow(value, "course-breadcrumb", value.courseId));
         refreshDiagnostic(); return;
       }
-      const status = globalThis.UIPScannerCore.classifyWorkflowSection(scan.feedback || []);
-      const next = { ...value, sections: value.sections.map((item) => item.id === value.currentSectionId ? { ...item, status } : item) };
-      const saved = await updateWorkflow(next, epoch);
-      if (epoch !== renderEpoch) return;
-      if (!saved || saved.ok !== true) {
-        workflowSummary.textContent = "No se pudo guardar la clasificación del módulo. No se modificó el recorrido.";
-        workflowStatus.textContent = "Vuelve a escanear antes de continuar.";
-        refreshDiagnostic(); return;
-      }
-      workflowSummary.textContent = `Módulo actual: ${status === "needs-review" ? "requiere Feedback" : status === "completed" ? "completado" : status === "no-feedback" ? "sin Feedback" : status === "blocked" ? "bloqueado" : "estado no verificable"} · ${workflowProgress(lastWorkflow)}.`;
-      renderFeedbackList(scan, lastWorkflow);
-      workflowReturnCourseButton.onclick = () => navigateWorkflow(lastWorkflow, "course-breadcrumb", lastWorkflow.courseId);
-      show(workflowReturnCourseButton); refreshDiagnostic(); return;
+      const current = value.sections.find((item) => item.id === value.currentSectionId);
+      const status = current && current.status;
+      workflowSummary.textContent = `Módulo actual: ${status === "needs-review" ? "requiere Feedback" : status === "completed" ? "completado" : status === "no-feedback" ? "sin Feedback" : status === "blocked" ? "bloqueado" : "estado no verificable"} · ${workflowProgress(value)}.`;
+      renderFeedbackList(scan, value);
+      workflowReturnCourseButton.onclick = () => navigateWorkflow(value, "course-breadcrumb", value.courseId);
+      show(workflowReturnCourseButton); return;
     }
     if (scan.pageType === "FEEDBACK") {
       const page = scan.feedbackPage;
@@ -226,28 +210,37 @@
       if (action === "form-open") workflowSummary.textContent += " Formulario de Feedback abierto. Usa Feedback Assistant para revisar las respuestas.";
       else if (action === "open-form") setWorkflowAction("Abrir formulario", () => navigateWorkflow(value, "response-form", page.id));
       else workflowSummary.textContent += " El formulario no está disponible o no es verificable.";
-      refreshDiagnostic(); return;
+      return;
     }
     if (scan.pageType === "COURSE") {
       if (globalThis.UIPScannerCore.workflowIsFinal(value)) {
         workflowSummary.textContent = `Recorrido finalizado · ${workflowProgress(value)}. Los módulos bloqueados o no verificables no se consideran completados.`;
-        refreshDiagnostic(); return;
+        return;
       }
       const current = currentWorkflowSection(value);
       const next = current && !["completed", "no-feedback"].includes(current.status) ? current : globalThis.UIPScannerCore.workflowNextSection(value);
-      if (!next) { workflowSummary.textContent += " No hay un siguiente módulo pendiente verificable."; refreshDiagnostic(); return; }
+      if (!next) { workflowSummary.textContent += " No hay un siguiente módulo pendiente verificable."; return; }
       const label = current && current.id === next.id && current.status !== "pending" ? "Volver a revisar módulo" : "Abrir siguiente módulo";
-      setWorkflowAction(label, () => navigateWorkflow(value, "section", next.id, () => updateWorkflow({ ...value, currentSectionId: next.id, sections: value.sections.map((item) => item.id === next.id ? { ...item, status: "visiting" } : item) })));
-      refreshDiagnostic(); return;
+      setWorkflowAction(label, () => navigateWorkflow(value, "section", next.id, () => globalThis.UIPWorkflowClient.save({ ...value, currentSectionId: next.id, sections: value.sections.map((item) => item.id === next.id ? { ...item, status: "visiting" } : item) })));
+      return;
     }
     workflowSummary.textContent += " Abre el curso o el módulo correspondiente para continuar.";
-    refreshDiagnostic();
+    return;
   }
-  async function render(scan) {
-    const epoch = ++renderEpoch;
-    lastScan = scan;
-    lastWorkflow = null;
-    workflowState = globalThis.UIPWorkflowUiState.begin(epoch);
+  function renderView(state) {
+    const scan = state.scan;
+    if (state.phase === "loading") {
+      setStatus("Cargando estado del recorrido…");
+      copyButton.disabled = true; hide(details); hide(copyButton);
+      renderWorkflow(state);
+      return;
+    }
+    if (!scan) {
+      setStatus(state.error || "No se pudo cargar el recorrido. Intenta nuevamente.");
+      copyButton.disabled = true; hide(details); hide(copyButton);
+      renderWorkflow(state);
+      return;
+    }
     const type = labels[scan.pageType] || labels.OTHER;
     if (scan.sessionApparentlyNotStarted) setStatus("Sesión aparentemente no iniciada.");
     else if (scan.pageType === "OTHER") setStatus("Moodle detectado · Página no reconocida.");
@@ -256,63 +249,81 @@
     const partial = scan.partial ? "<p><strong>Escaneo parcial:</strong> algunos elementos no pudieron analizarse.</p>" : "";
     summary.innerHTML = `<p><strong>Página:</strong> ${type}</p>${course}<dl><dt>Cursos detectados</dt><dd>${scan.summary.courses}</dd><dt>Módulos detectados</dt><dd>${scan.summary.modules}</dd><dt>Disponibles (confirmados)</dt><dd>${scan.summary.modulesAvailable}</dd><dt>Bloqueados (confirmados)</dt><dd>${scan.summary.modulesLocked}</dd><dt>Actividades</dt><dd>${scan.summary.activities}</dd><dt>Feedback</dt><dd>${scan.summary.feedback}</dd><dt>Feedback completados</dt><dd>${scan.summary.feedbackCompleted}</dd><dt>Feedback pendientes (confirmados)</dt><dd>${scan.summary.feedbackPending}</dd></dl>${partial}`;
     result.textContent = JSON.stringify(diagnosticFor(scan), null, 2);
-    copyButton.disabled = true;
+    copyButton.disabled = !globalThis.UIPWorkflowUiState.canCopy(state);
     show(summary); show(details); show(copyButton);
     renderAssistant(scan.feedbackForm);
     renderSubmission(scan.feedbackSubmission);
     renderNavigation(scan);
-    renderWorkflow(scan);
-    const loaded = await globalThis.UIPWorkflowSession.load();
-    const hydration = globalThis.UIPWorkflowUiState.hydrate(workflowState, epoch, loaded);
-    if (!hydration.apply || epoch !== renderEpoch) return;
-    workflowState = hydration.state;
-    lastWorkflow = workflowState.workflow;
-    await renderWorkflow(scan);
-    refreshDiagnostic();
-    copyButton.disabled = !globalThis.UIPWorkflowUiState.canCopy(workflowState);
+    renderWorkflow(state);
+  }
+  const withTimeout = (promise) => new Promise((resolve) => {
+    const timer = setTimeout(() => resolve({ ok: false, error: "timeout" }), 3000);
+    Promise.resolve(promise).then((value) => { clearTimeout(timer); resolve(value); }, () => { clearTimeout(timer); resolve({ ok: false, error: "timeout" }); });
+  });
+  const scanCurrent = () => withTimeout(new Promise((resolve) => activeTab((tab) => {
+    if (!tab || !tab.id) { resolve({ ok: false }); return; }
+    chrome.tabs.sendMessage(tab.id, { type: "UIP_SCAN_CURRENT_DOCUMENT" }, (response) => {
+      resolve(chrome.runtime.lastError || !response || !response.ok ? { ok: false } : response);
+    });
+  })));
+  async function reconcileSection(scan, workflow) {
+    if (!workflow || scan.pageType !== "SECTION" || !scan.course || scan.course.id !== workflow.courseId || !scan.currentSection || scan.currentSection.id !== workflow.currentSectionId) return { ok: true, workflow };
+    const status = globalThis.UIPScannerCore.classifyWorkflowSection(scan.feedback || []);
+    const current = workflow.sections.find((item) => item.id === workflow.currentSectionId);
+    if (!current || current.status === status) return { ok: true, workflow };
+    const saved = await globalThis.UIPWorkflowClient.save({ ...workflow, sections: workflow.sections.map((item) => item.id === workflow.currentSectionId ? { ...item, status } : item) });
+    return saved && saved.ok === true ? saved : { ok: false, workflow, error: "No se pudo actualizar el estado del módulo." };
+  }
+  async function refreshPopup() {
+    const epoch = uiState.epoch + 1;
+    uiState = { epoch, phase: "loading", scan: null, workflow: null, error: null };
+    renderView(uiState);
+    const [scanResult, workflowResult] = await Promise.all([scanCurrent(), globalThis.UIPWorkflowClient.load()]);
+    if (!globalThis.UIPWorkflowUiState.isCurrentEpoch(uiState, epoch)) return;
+    if (!scanResult || !scanResult.ok || !globalThis.UIPScannerCore.isCompatibleScan(scanResult.scan)) {
+      uiState = { epoch, phase: "error", scan: null, workflow: null, error: "No se pudo cargar el recorrido. Intenta nuevamente." };
+      renderView(uiState); return;
+    }
+    if (!workflowResult || workflowResult.ok !== true) {
+      uiState = { epoch, phase: "error", scan: scanResult.scan, workflow: null, error: "No se pudo cargar el recorrido. Intenta nuevamente." };
+      renderView(uiState); return;
+    }
+    const reconciled = await reconcileSection(scanResult.scan, workflowResult.workflow);
+    if (!globalThis.UIPWorkflowUiState.isCurrentEpoch(uiState, epoch)) return;
+    if (!reconciled.ok) {
+      uiState = { epoch, phase: "error", scan: scanResult.scan, workflow: reconciled.workflow || workflowResult.workflow, error: reconciled.error || "No se pudo actualizar el estado del módulo." };
+      renderView(uiState); return;
+    }
+    uiState = { epoch, phase: "ready", scan: scanResult.scan, workflow: reconciled.workflow, error: null };
+    renderView(uiState);
   }
 
   scanButton.addEventListener("click", () => {
-    scanButton.disabled = true;
-    setStatus("Analizando la página actual…");
-    activeTab((tab) => {
-      if (!tab || !tab.id) { setStatus("No se pudo acceder a la pestaña actual."); scanButton.disabled = false; return; }
-      chrome.tabs.sendMessage(tab.id, { type: "UIP_SCAN_CURRENT_DOCUMENT" }, (response) => {
-        scanButton.disabled = false;
-        if (chrome.runtime.lastError || !response || !response.ok) {
-          setStatus("No estás en Moodle o la página aún no está lista.");
-          return;
-        }
-        if (!globalThis.UIPScannerCore.isCompatibleScan(response.scan)) {
-          setStatus("La extensión fue actualizada. Recarga la pestaña de Moodle y vuelve a escanear.");
-          return;
-        }
-        render(response.scan);
-      });
-    });
+    refreshPopup();
   });
 
   preference.addEventListener("change", () => {
-    prefillButton.disabled = !lastScan || !lastScan.feedbackForm || !lastScan.feedbackForm.canPrefill || !lastScan.feedbackForm.signature || !preference.value;
+    const scan = uiState.scan;
+    prefillButton.disabled = uiState.phase !== "ready" || !scan || !scan.feedbackForm || !scan.feedbackForm.canPrefill || !scan.feedbackForm.signature || !preference.value;
     if (!prefillButton.disabled) {
-      const preview = globalThis.UIPScannerCore.feedbackPrefillPreview(lastScan.feedbackForm, preference.value);
+      const preview = globalThis.UIPScannerCore.feedbackPrefillPreview(scan.feedbackForm, preference.value);
       const labels = preview.details.filter((item) => item.status === "changed").map((item) => item.label || item.id).filter(Boolean);
       prefillStatus.textContent = labels.length ? `Se modificarían ${labels.length}: ${labels.join(", ")}.` : "No hay preguntas nuevas compatibles para modificar.";
     }
   });
 
   prefillButton.addEventListener("click", () => {
-    if (!lastScan || !lastScan.feedbackForm || !lastScan.feedbackForm.signature || !preference.value) return;
+    if (uiState.phase !== "ready" || !uiState.scan || !uiState.scan.feedbackForm || !uiState.scan.feedbackForm.signature || !preference.value) return;
     prefillButton.disabled = true;
     prefillStatus.textContent = "Preseleccionando radios compatibles…";
     activeTab((tab) => {
       if (!tab || !tab.id) { prefillStatus.textContent = "No se pudo acceder a la pestaña actual."; return; }
-      chrome.tabs.sendMessage(tab.id, { type: "UIP_PREFILL_FEEDBACK", feedbackId: lastScan.feedbackForm.id, expectedQuestionCount: lastScan.feedbackForm.questions.length, expectedSignature: lastScan.feedbackForm.signature, preference: preference.value }, (response) => {
+      chrome.tabs.sendMessage(tab.id, { type: "UIP_PREFILL_FEEDBACK", feedbackId: uiState.scan.feedbackForm.id, expectedQuestionCount: uiState.scan.feedbackForm.questions.length, expectedSignature: uiState.scan.feedbackForm.signature, preference: preference.value }, (response) => {
         if (chrome.runtime.lastError || !response || !response.ok || !globalThis.UIPScannerCore.isCompatibleScan(response.scan)) {
           prefillStatus.textContent = "No se pudo preseleccionar. Recarga Moodle y vuelve a revisar.";
           return;
         }
-        render(response.scan);
+        refreshPopup();
         const result = response.prefillResult;
         if (result.staleForm) {
           prefillStatus.textContent = "El formulario cambió desde el análisis. Vuelve a revisar antes de preseleccionar.";
@@ -324,33 +335,35 @@
   });
 
   startWorkflowButton.addEventListener("click", () => {
-    if (!globalThis.UIPWorkflowUiState.canShowPlanner(lastScan, workflowState)) return;
+    if (!globalThis.UIPWorkflowUiState.canShowPlanner(uiState.scan, uiState)) return;
     const selected = Array.from(workflowSections.querySelectorAll('input[type="checkbox"]:checked')).map((input) => input.value);
-    const plan = globalThis.UIPScannerCore.createWorkflowPlan(lastScan.course.id, workflowPreference.value, plannerCandidates, selected);
+    const plan = globalThis.UIPScannerCore.createWorkflowPlan(uiState.scan.course.id, workflowPreference.value, plannerCandidates, selected);
     if (!plan) { workflowStatus.textContent = "Elige al menos un módulo disponible y una valoración explícita."; return; }
     startWorkflowButton.disabled = true;
-    updateWorkflow(plan).then((saved) => {
+    workflowStatus.textContent = "Guardando recorrido…";
+    globalThis.UIPWorkflowClient.save(plan).then((saved) => {
       if (!saved || saved.ok !== true) {
         workflowStatus.textContent = "No se pudo guardar el recorrido. No se inició.";
         startWorkflowButton.disabled = false;
         return;
       }
-      workflowStatus.textContent = "Plan listo. Abre explícitamente el siguiente módulo.";
-      renderWorkflow(lastScan);
+      uiState = { ...uiState, workflow: saved.workflow };
+      renderView(uiState);
+      workflowStatus.textContent = "Recorrido guardado.";
     });
   });
   workflowCancelButton.addEventListener("click", () => {
-    if (workflowState.loading || workflowState.error || !lastWorkflow || !window.confirm("¿Cancelar este recorrido? Moodle no se modificará.")) return;
+    if (uiState.phase !== "ready" || !uiState.workflow || !window.confirm("¿Cancelar este recorrido? Moodle no se modificará.")) return;
     workflowCancelButton.disabled = true;
-    globalThis.UIPWorkflowSession.clear().then((cleared) => {
+    globalThis.UIPWorkflowClient.clear().then((cleared) => {
       if (!cleared || cleared.ok !== true) {
         workflowStatus.textContent = "No se pudo cancelar el recorrido.";
         workflowCancelButton.disabled = false;
         return;
       }
-      lastWorkflow = null;
+      uiState = { ...uiState, workflow: null };
+      renderView(uiState);
       workflowStatus.textContent = "Recorrido cancelado.";
-      renderWorkflow(lastScan);
     });
   });
 
@@ -364,7 +377,7 @@
           submitStatus.textContent = "No se pudo revisar el envío. Recarga Moodle y vuelve a analizar.";
           return;
         }
-        render(response.scan);
+        refreshPopup();
         if (!response.submission || !response.submission.readyToSubmit) {
           submitStatus.textContent = "El formulario ya no está listo para enviar.";
           return;
@@ -377,7 +390,7 @@
   });
 
   confirmSubmitButton.addEventListener("click", () => {
-    const submissionState = lastScan && lastScan.feedbackSubmission;
+    const submissionState = uiState.phase === "ready" && uiState.scan && uiState.scan.feedbackSubmission;
     if (!submissionState || !submissionState.readyToSubmit || !submissionState.formSignature) return;
     confirmSubmitButton.disabled = true;
     submitStatus.textContent = "Solicitando el envío real de Moodle…";
@@ -408,14 +421,14 @@
           navigationStatus.textContent = "No se pudo revisar la navegación.";
           return;
         }
-        render(response.scan);
+        refreshPopup();
         navigationStatus.textContent = response.navigation && response.navigation.feedbackResult && response.navigation.feedbackResult.continueAction && response.navigation.feedbackResult.continueAction.unique ? "Continuación disponible; requiere otro clic explícito." : "Sin continuación segura.";
       });
     });
   });
 
   continueNavigationButton.addEventListener("click", () => {
-    const feedbackResult = lastScan && lastScan.feedbackResult;
+    const feedbackResult = uiState.phase === "ready" && uiState.scan && uiState.scan.feedbackResult;
     const action = feedbackResult && feedbackResult.continueAction;
     if (!feedbackResult || !action || !action.unique || !["link", "form-submit"].includes(action.kind) || !action.signature) return;
     continueNavigationButton.disabled = true;
@@ -433,10 +446,11 @@
   });
 
   copyButton.addEventListener("click", async () => {
-    if (!lastScan || !globalThis.UIPWorkflowUiState.canCopy(workflowState)) return;
+    if (!uiState.scan || !globalThis.UIPWorkflowUiState.canCopy(uiState)) return;
     try {
-      await navigator.clipboard.writeText(JSON.stringify(diagnosticFor(lastScan), null, 2));
+      await navigator.clipboard.writeText(JSON.stringify(diagnosticFor(uiState.scan), null, 2));
       setStatus("Diagnóstico sanitizado copiado al portapapeles.");
     } catch (_) { setStatus("No se pudo copiar el diagnóstico."); }
   });
+  refreshPopup();
 })();
