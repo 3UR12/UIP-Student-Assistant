@@ -18,8 +18,9 @@ An authenticated Moodle UIP session is required for meaningful real-world valida
 3. Open a module/section (`/course/section.php?id=…`) yourself and scan again. Confirm the result remains stable even where states are unknown.
 4. Open a Feedback activity yourself (`/mod/feedback/…`) and scan. Confirm it is recognized, without any form change or submission.
 5. Where a section contains multiple Feedback activities, confirm each appears in the detail JSON separately.
-6. Select **Copiar diagnóstico sanitizado**, paste it into a local text editor, and verify it has no raw HTML, cookies, `sesskey`, tokens, login fields, messages, or student profile data.
-7. Open a non-Moodle tab and scan; the popup should say that it is not on Moodle.
+6. On a course with confirmed available modules, create a short module plan, choose a rating, copy the diagnostic, and verify its optional workflow summary contains only counts/current ID/status, not the preference or section list. Use **Abrir siguiente módulo**, rescan the real section, and stop there for the first v0.4 authenticated validation; do not open Feedback until that session state, order, course ID, and classification have been reviewed.
+7. Select **Copiar diagnóstico sanitizado**, paste it into a local text editor, and verify it has no raw HTML, cookies, `sesskey`, tokens, login fields, messages, student profile data, workflow preference, or workflow section list.
+8. Open a non-Moodle tab and scan; the popup should say that it is not on Moodle.
 
 ## Developer tools
 
@@ -28,7 +29,7 @@ An authenticated Moodle UIP session is required for meaningful real-world valida
 - **Feedback inspection (first v0.3 real test):** manually open `/mod/feedback/complete.php?id=…`, scan, preselect a visible rating, and confirm **Listo para enviar** with the expected counts. Copy the sanitized diagnostic and inspect the detected submit metadata. Do not select **Confirmar y enviar** during this first test.
 - **Controlled submit (only after diagnostic review):** select **Revisar envío**, verify the confirmation counts, then use **Confirmar y enviar** only for one intentionally controlled test. Reopen the popup and scan after Moodle navigates; do not treat the click itself as success.
 - **Continue:** if a result page exposes **Continuar**, select **Revisar navegación** and use the separate Continue button only after confirming its detected type, path, and GET method. Moodle may expose this action as a form button without a visible destination ID; do not infer one.
-- **Extension:** in `edge://extensions` or `chrome://extensions`, use the extension card to reload the package and inspect any reported manifest errors. v0.3.0 has no service worker.
+- **Extension:** in `edge://extensions` or `chrome://extensions`, use the extension card to reload the package and inspect any reported manifest errors. v0.4.0 has no service worker; the only new permission is `storage` for ephemeral `chrome.storage.session` workflow metadata.
 - **Manifest errors:** reload the extension from its card after source changes and read the error text shown on that card.
 
 The extension has no automated authenticated test because it must not receive or store a user's Moodle session. Run the static validation commands below before a manual test.

@@ -1,6 +1,6 @@
 # Security and privacy
 
-UIP Student Assistant v0.3.0 is a local DOM scanner with limited Feedback radio-prefill, controlled submission, and controlled Continue actions.
+UIP Student Assistant v0.4.0 is a local DOM scanner with limited Feedback radio-prefill, controlled submission, controlled Continue actions, and a controlled multi-module workflow.
 
 ## What it does not do
 
@@ -10,15 +10,16 @@ UIP Student Assistant v0.3.0 is a local DOM scanner with limited Feedback radio-
 - It does not use `fetch`, external services, AI APIs, analytics, telemetry, a backend, cloud storage, or a database.
 - It does not take screenshots or save scans locally.
 
-The browser's normal Moodle session renders the page. The extension inspects visible structural metadata only after the user presses the scan button. The rating preference lives only while the popup is open; no storage permission is used.
+The browser's normal Moodle session renders the page. The extension inspects visible structural metadata only after the user presses the scan button. v0.4 may keep a single active workflow only in `chrome.storage.session`: version, active flag, course ID, selected rating, ordered `{id, url, name, status}` sections, and current section ID. It explicitly discards signatures, answers, hidden values, tokens, raw DOM, and every unlisted field before saving or using a stored value. It never uses `chrome.storage.local`.
 
 ## Manifest permissions
 
 | Permission | Reason |
 | --- | --- |
 | `https://moodle.uip.edu.pa/*` host permission | Limits the passive content bridge to Moodle UIP and lets it receive the requested scan message there. |
+| `storage` | Persists only the allow-listed active workflow in `chrome.storage.session` for the current browser session. |
 
-There are no API permissions, nor `<all_urls>`, cookie, storage, identity, webRequest, scripting, or clipboard manifest permissions. Clipboard writing uses the browser's popup user gesture when the user presses the copy button.
+There are no permissions for `<all_urls>`, cookies, identity, webRequest, scripting, or `storage.local`. Clipboard writing uses the browser's popup user gesture when the user presses the copy button.
 
 ## Diagnostic export
 
