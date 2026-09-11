@@ -715,7 +715,7 @@ const staleWorkflowAnchor = makeWorkflowAnchor("/course/section.php?id=153818");
 const staleWorkflowScope = { querySelectorAll: () => [staleWorkflowAnchor], contains: () => true };
 const originalWorkflowInspect = core.inspectWorkflowNavigation;
 let workflowInspectCount = 0;
-core.inspectWorkflowNavigation = (...args) => { workflowInspectCount += 1; if (workflowInspectCount === 2) staleWorkflowAnchor.getAttribute = (name) => name === "href" ? "/course/section.php?id=153819" : null; return originalWorkflowInspect(...args); };
+core.inspectWorkflowNavigation = (...args) => { workflowInspectCount += 1; if (workflowInspectCount === 2) staleWorkflowAnchor.getAttribute = (name) => name === "href" ? "/course/section.php?id=153818&changed=1" : null; return originalWorkflowInspect(...args); };
 assert.equal(core.navigateWorkflow(workflowDocument, staleWorkflowScope, workflowExpected).navigationTriggered, false);
 assert.equal(staleWorkflowAnchor.clickCount, 0);
 core.inspectWorkflowNavigation = originalWorkflowInspect;

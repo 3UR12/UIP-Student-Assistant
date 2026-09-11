@@ -72,24 +72,28 @@
   };
   core.workflowStatusAllowed = (value) => statuses.has(value);
 
+  const workflowLinks = (document, scope, expected) => {
+    const kind = expected && expected.kind;
+    const pathname = paths[kind];
+    const targetId = expected && expected.targetId;
+    const searchScope = kind === "course-breadcrumb" ? document : scope;
+    if (!pathname || !validId(targetId) || !searchScope || !searchScope.querySelectorAll) return [];
+    const selector = kind === "course-breadcrumb" ? core.selectors.courseBreadcrumbLinks : "a[href]";
+    return Array.from(searchScope.querySelectorAll(selector)).filter((link) => {
+      if (!inScope(searchScope, link) || !core.isDomVisible(link)) return false;
+      if (!canonicalTarget(link.getAttribute("href"), document.location.href, pathname, targetId)) return false;
+      if (kind === "course-breadcrumb") return true;
+      const availability = restricted(link);
+      return availability.available === true && availability.locked !== true;
+    });
+  };
+
   core.inspectWorkflowNavigation = function inspectWorkflowNavigation(document, scope, expected) {
     const kind = expected && expected.kind;
     const pathname = paths[kind];
     const targetId = expected && expected.targetId;
     if (!pathname || !validId(targetId) || !document || !document.location) return { detected: false, unique: false, action: null };
-    const searchScope = kind === "course-breadcrumb" ? document : scope;
-    if (!searchScope || !searchScope.querySelectorAll) return { detected: false, unique: false, action: null };
-    const selector = kind === "course-breadcrumb" ? core.selectors.courseBreadcrumbLinks : "a[href]";
-    const candidates = Array.from(searchScope.querySelectorAll(selector)).filter((link) => {
-      if (!inScope(searchScope, link) || !core.isDomVisible(link)) return false;
-      const target = canonicalTarget(link.getAttribute("href"), document.location.href, pathname, targetId);
-      if (!target) return false;
-      if (kind !== "course-breadcrumb") {
-        const availability = restricted(link);
-        if (availability.available !== true || availability.locked === true) return false;
-      }
-      return true;
-    });
+    const candidates = workflowLinks(document, scope, expected);
     if (candidates.length !== 1) return { detected: candidates.length > 0, unique: false, action: null };
     const target = canonicalTarget(candidates[0].getAttribute("href"), document.location.href, pathname, targetId);
     return { detected: true, unique: true, action: { kind, id: target.id, pathname, signature: signatureFor(kind, target) } };
@@ -98,18 +102,13 @@
   core.navigateWorkflow = function navigateWorkflow(document, scope, expected) {
     const initial = core.inspectWorkflowNavigation(document, scope, expected);
     if (!initial.unique || !initial.action) return { navigationTriggered: false, reason: "navigation-unavailable" };
+    const initialLinks = workflowLinks(document, scope, expected);
+    const initialHref = initialLinks.length === 1 ? initialLinks[0].getAttribute("href") : null;
+    if (!initialHref) return { navigationTriggered: false, reason: "navigation-changed" };
     const current = core.inspectWorkflowNavigation(document, scope, expected);
     if (!current.unique || !current.action || current.action.signature !== initial.action.signature) return { navigationTriggered: false, reason: "navigation-changed" };
-    const searchScope = expected.kind === "course-breadcrumb" ? document : scope;
-    const selector = expected.kind === "course-breadcrumb" ? core.selectors.courseBreadcrumbLinks : "a[href]";
-    const link = Array.from(searchScope.querySelectorAll(selector)).filter((candidate) => {
-      const target = canonicalTarget(candidate.getAttribute("href"), document.location.href, paths[expected.kind], expected.targetId);
-      if (!target || !core.isDomVisible(candidate)) return false;
-      if (expected.kind === "course-breadcrumb") return true;
-      const availability = restricted(candidate);
-      return availability.available === true && availability.locked !== true;
-    });
-    if (link.length !== 1) return { navigationTriggered: false, reason: "navigation-changed" };
+    const link = workflowLinks(document, scope, expected);
+    if (link.length !== 1 || link[0].getAttribute("href") !== initialHref) return { navigationTriggered: false, reason: "navigation-changed" };
     link[0].click();
     return { navigationTriggered: true, kind: expected.kind, id: expected.targetId };
   };
