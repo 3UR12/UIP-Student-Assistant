@@ -655,24 +655,24 @@ assert.equal(formContinueDiagnostic.feedbackResult.continueAction.method, "get")
 assert.equal(JSON.stringify(formContinueDiagnostic).includes("signature"), false);
 
 // v0.4 planner: only structurally proven, available section URLs may enter a plan.
-const workflowCourse = { id: "8199" };
+const workflowCourse = { id: "9001" };
 const workflowModules = [
-  { id: "153818", url: "https://moodle.uip.edu.pa/course/section.php?id=153818", name: "Módulo 1", available: true, locked: false },
-  { id: "153819", url: "https://moodle.uip.edu.pa/course/section.php?id=153819", name: "Módulo 2", available: null, locked: null },
-  { id: "153820", url: "https://moodle.uip.edu.pa/course/section.php?id=153820", name: "Módulo 3", available: false, locked: true },
-  { id: "153821", url: "https://moodle.uip.edu.pa/course/section.php?id=153822", name: "Incorrecta", available: true, locked: false },
-  { id: "153823", url: "https://moodle.uip.edu.pa/course/section.php?id=153823", name: null, available: true, locked: false }
+  { id: "7001", url: "https://moodle.uip.edu.pa/course/section.php?id=7001", name: "Módulo 1", available: true, locked: false },
+  { id: "7004", url: "https://moodle.uip.edu.pa/course/section.php?id=7004", name: "Módulo 2", available: null, locked: null },
+  { id: "7010", url: "https://moodle.uip.edu.pa/course/section.php?id=7010", name: "Módulo 3", available: false, locked: true },
+  { id: "7020", url: "https://moodle.uip.edu.pa/course/section.php?id=7021", name: "Incorrecta", available: true, locked: false },
+  { id: "7040", url: "https://moodle.uip.edu.pa/course/section.php?id=7040", name: null, available: true, locked: false }
 ];
 const workflowCandidates = core.workflowPlanCandidates(workflowCourse, workflowModules);
-assert.deepEqual(workflowCandidates.map((item) => item.id), ["153818", "153819", "153820", "153823"]);
+assert.deepEqual(workflowCandidates.map((item) => item.id), ["7001", "7004", "7010", "7040"]);
 assert.equal(workflowCandidates[0].selectable, true);
 assert.equal(workflowCandidates[1].selectable, false);
 assert.equal(workflowCandidates[2].selectable, false);
 assert.equal(workflowCandidates[3].autoSelected, false);
-assert.equal(core.createWorkflowPlan("8199", "", workflowCandidates, ["153818"]), null);
-assert.equal(core.createWorkflowPlan("8199", "Bueno", workflowCandidates, []), null);
-const workflowPlan = core.createWorkflowPlan("8199", "Bueno", workflowCandidates, ["153818", "153819"]);
-assert.deepEqual(workflowPlan.sections.map((item) => item.id), ["153818"]);
+assert.equal(core.createWorkflowPlan("9001", "", workflowCandidates, ["7001"]), null);
+assert.equal(core.createWorkflowPlan("9001", "Bueno", workflowCandidates, []), null);
+const workflowPlan = core.createWorkflowPlan("9001", "Bueno", workflowCandidates, ["7001", "7004"]);
+assert.deepEqual(workflowPlan.sections.map((item) => item.id), ["7001"]);
 assert.equal(core.classifyWorkflowSection([]), "no-feedback");
 assert.equal(core.classifyWorkflowSection([{ completionState: "completed", available: true }]), "completed");
 assert.equal(core.classifyWorkflowSection([{ completionState: "incomplete", available: true }]), "needs-review");
@@ -685,37 +685,37 @@ const makeWorkflowAnchor = (href, restricted) => ({
   getAttribute: (name) => name === "href" ? href : null, clickCount: 0,
   click() { this.clickCount += 1; }
 });
-const workflowDocument = { location: { href: "https://moodle.uip.edu.pa/course/view.php?id=8199", pathname: "/course/view.php" } };
-const goodSectionAnchor = makeWorkflowAnchor("/course/section.php?id=153818");
+const workflowDocument = { location: { href: "https://moodle.uip.edu.pa/course/view.php?id=9001", pathname: "/course/view.php" } };
+const goodSectionAnchor = makeWorkflowAnchor("/course/section.php?id=7001");
 const workflowScope = { querySelectorAll: () => [goodSectionAnchor], contains: (item) => item === goodSectionAnchor };
-const workflowExpected = { kind: "section", targetId: "153818", courseId: "8199" };
+const workflowExpected = { kind: "section", targetId: "7001", courseId: "9001" };
 assert.equal(core.inspectWorkflowNavigation(workflowDocument, workflowScope, workflowExpected).unique, true);
 assert.equal(core.navigateWorkflow(workflowDocument, workflowScope, workflowExpected).navigationTriggered, true);
 assert.equal(goodSectionAnchor.clickCount, 1);
-const wrongSectionAnchor = makeWorkflowAnchor("/course/section.php?id=153819");
+const wrongSectionAnchor = makeWorkflowAnchor("/course/section.php?id=7004");
 assert.equal(core.inspectWorkflowNavigation(workflowDocument, { querySelectorAll: () => [wrongSectionAnchor], contains: () => true }, workflowExpected).detected, false);
-const externalSectionAnchor = makeWorkflowAnchor("https://example.com/course/section.php?id=153818");
+const externalSectionAnchor = makeWorkflowAnchor("https://example.com/course/section.php?id=7001");
 assert.equal(core.inspectWorkflowNavigation(workflowDocument, { querySelectorAll: () => [externalSectionAnchor], contains: () => true }, workflowExpected).detected, false);
-const hiddenSectionAnchor = makeWorkflowAnchor("/course/section.php?id=153818"); hiddenSectionAnchor.style.display = "none";
+const hiddenSectionAnchor = makeWorkflowAnchor("/course/section.php?id=7001"); hiddenSectionAnchor.style.display = "none";
 assert.equal(core.inspectWorkflowNavigation(workflowDocument, { querySelectorAll: () => [hiddenSectionAnchor], contains: () => true }, workflowExpected).detected, false);
-const restrictedSectionAnchor = makeWorkflowAnchor("/course/section.php?id=153818", true);
+const restrictedSectionAnchor = makeWorkflowAnchor("/course/section.php?id=7001", true);
 assert.equal(core.inspectWorkflowNavigation(workflowDocument, { querySelectorAll: () => [restrictedSectionAnchor], contains: () => true }, workflowExpected).detected, false);
-const duplicateA = makeWorkflowAnchor("/course/section.php?id=153818"); const duplicateB = makeWorkflowAnchor("/course/section.php?id=153818");
+const duplicateA = makeWorkflowAnchor("/course/section.php?id=7001"); const duplicateB = makeWorkflowAnchor("/course/section.php?id=7001");
 assert.equal(core.inspectWorkflowNavigation(workflowDocument, { querySelectorAll: () => [duplicateA, duplicateB], contains: () => true }, workflowExpected).unique, false);
-const feedbackAnchor = makeWorkflowAnchor("/mod/feedback/view.php?id=2059248");
-assert.equal(core.inspectWorkflowNavigation(workflowDocument, { querySelectorAll: () => [feedbackAnchor], contains: () => true }, { kind: "feedback", targetId: "2059248", courseId: "8199" }).unique, true);
-const responseAnchor = makeWorkflowAnchor("/mod/feedback/complete.php?id=2059248");
-assert.equal(core.navigateWorkflow(workflowDocument, { querySelectorAll: () => [responseAnchor], contains: () => true }, { kind: "response-form", targetId: "2059248", courseId: "8199" }).navigationTriggered, true);
+const feedbackAnchor = makeWorkflowAnchor("/mod/feedback/view.php?id=8801");
+assert.equal(core.inspectWorkflowNavigation(workflowDocument, { querySelectorAll: () => [feedbackAnchor], contains: () => true }, { kind: "feedback", targetId: "8801", courseId: "9001" }).unique, true);
+const responseAnchor = makeWorkflowAnchor("/mod/feedback/complete.php?id=8801");
+assert.equal(core.navigateWorkflow(workflowDocument, { querySelectorAll: () => [responseAnchor], contains: () => true }, { kind: "response-form", targetId: "8801", courseId: "9001" }).navigationTriggered, true);
 assert.equal(responseAnchor.clickCount, 1);
-const breadcrumbAnchor = makeWorkflowAnchor("/course/view.php?id=8199");
+const breadcrumbAnchor = makeWorkflowAnchor("/course/view.php?id=9001");
 workflowDocument.querySelectorAll = () => [breadcrumbAnchor];
-assert.equal(core.navigateWorkflow(workflowDocument, workflowScope, { kind: "course-breadcrumb", targetId: "8199", courseId: "8199" }).navigationTriggered, true);
+assert.equal(core.navigateWorkflow(workflowDocument, workflowScope, { kind: "course-breadcrumb", targetId: "9001", courseId: "9001" }).navigationTriggered, true);
 assert.equal(breadcrumbAnchor.clickCount, 1);
-const staleWorkflowAnchor = makeWorkflowAnchor("/course/section.php?id=153818");
+const staleWorkflowAnchor = makeWorkflowAnchor("/course/section.php?id=7001");
 const staleWorkflowScope = { querySelectorAll: () => [staleWorkflowAnchor], contains: () => true };
 const originalWorkflowInspect = core.inspectWorkflowNavigation;
 let workflowInspectCount = 0;
-core.inspectWorkflowNavigation = (...args) => { workflowInspectCount += 1; if (workflowInspectCount === 2) staleWorkflowAnchor.getAttribute = (name) => name === "href" ? "/course/section.php?id=153818&changed=1" : null; return originalWorkflowInspect(...args); };
+core.inspectWorkflowNavigation = (...args) => { workflowInspectCount += 1; if (workflowInspectCount === 2) staleWorkflowAnchor.getAttribute = (name) => name === "href" ? "/course/section.php?id=7001&changed=1" : null; return originalWorkflowInspect(...args); };
 assert.equal(core.navigateWorkflow(workflowDocument, staleWorkflowScope, workflowExpected).navigationTriggered, false);
 assert.equal(staleWorkflowAnchor.clickCount, 0);
 core.inspectWorkflowNavigation = originalWorkflowInspect;
@@ -729,7 +729,7 @@ vm.runInContext(fs.readFileSync("extension/popup/workflow-session.js", "utf8"), 
 const sessionWorkflow = sessionContext.UIPWorkflowSession;
 const persisted = sessionWorkflow.sanitize({ ...workflowPlan, sections: [{ ...workflowPlan.sections[0], formSignature: "must-not-persist", token: "must-not-persist" }], extra: "must-not-persist" });
 assert.equal(JSON.stringify(persisted).includes("must-not-persist"), false);
-assert.equal(sessionWorkflow.sanitize({ version: 1, active: true, courseId: "8199", preference: "Bueno", sections: [{ id: "153818", url: "https://moodle.uip.edu.pa/course/section.php?id=153818", status: "not-a-status" }], currentSectionId: null }), null);
+assert.equal(sessionWorkflow.sanitize({ version: 1, active: true, courseId: "9001", preference: "Bueno", sections: [{ id: "7001", url: "https://moodle.uip.edu.pa/course/section.php?id=7001", status: "not-a-status" }], currentSectionId: null }), null);
 sessionWorkflow.save({ ...workflowPlan, sections: [{ ...workflowPlan.sections[0], token: "discard" }] });
 sessionWorkflow.clear();
 assert.deepEqual(Object.keys(storageCalls[0].set), ["uip.workflow.v1"]);
