@@ -28,6 +28,7 @@
     return { version: 1, active: true, courseId: value.courseId, preference: cleanText(value.preference, 160), sections, currentSectionId };
   };
   const sessionArea = () => global.chrome && chrome.storage && chrome.storage.session;
+  const runtimeError = () => global.chrome && chrome.runtime && chrome.runtime.lastError;
   const api = {
     key,
     sanitize,
@@ -40,18 +41,24 @@
     },
     load() {
       const area = sessionArea();
-      if (!area) return Promise.resolve(null);
-      return new Promise((resolve) => area.get(key, (result) => resolve(sanitize(result && result[key]))));
+      if (!area) return Promise.resolve({ ok: false, workflow: null });
+      return new Promise((resolve) => area.get(key, (result) => {
+        if (runtimeError()) { resolve({ ok: false, workflow: null }); return; }
+        resolve({ ok: true, workflow: sanitize(result && result[key]) });
+      }));
     },
     save(workflow) {
       const area = sessionArea(); const clean = sanitize(workflow);
-      if (!area || !clean) return Promise.resolve(null);
-      return new Promise((resolve) => area.set({ [key]: clean }, () => resolve(clean)));
+      if (!area || !clean) return Promise.resolve({ ok: false, workflow: null });
+      return new Promise((resolve) => area.set({ [key]: clean }, () => {
+        if (runtimeError()) { resolve({ ok: false, workflow: null }); return; }
+        resolve({ ok: true, workflow: clean });
+      }));
     },
     clear() {
       const area = sessionArea();
-      if (!area) return Promise.resolve();
-      return new Promise((resolve) => area.remove(key, resolve));
+      if (!area) return Promise.resolve({ ok: false });
+      return new Promise((resolve) => area.remove(key, () => resolve({ ok: !runtimeError() })));
     }
   };
   global.UIPWorkflowSession = api;

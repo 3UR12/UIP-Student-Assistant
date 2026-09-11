@@ -18,7 +18,7 @@ An authenticated Moodle UIP session is required for meaningful real-world valida
 3. Open a module/section (`/course/section.php?id=…`) yourself and scan again. Confirm the result remains stable even where states are unknown.
 4. Open a Feedback activity yourself (`/mod/feedback/…`) and scan. Confirm it is recognized, without any form change or submission.
 5. Where a section contains multiple Feedback activities, confirm each appears in the detail JSON separately.
-6. On a course with confirmed available modules, create a short module plan, choose a rating, copy the diagnostic, and verify its optional workflow summary contains only counts/current ID/status, not the preference or section list. Use **Abrir siguiente módulo**, rescan the real section, and stop there for the first v0.4 authenticated validation; do not open Feedback until that session state, order, course ID, and classification have been reviewed.
+6. On a course with confirmed available modules, create a short module plan, choose a rating, and wait for the popup to finish loading the workflow before copying the diagnostic. Verify its optional workflow summary contains only counts/current ID/status, not the preference or section list. Use **Abrir siguiente módulo**, rescan the real section, and stop there for the first v0.4 authenticated validation; do not open Feedback until that session state, order, course ID, and classification have been reviewed.
 7. Select **Copiar diagnóstico sanitizado**, paste it into a local text editor, and verify it has no raw HTML, cookies, `sesskey`, tokens, login fields, messages, student profile data, workflow preference, or workflow section list.
 8. Open a non-Moodle tab and scan; the popup should say that it is not on Moodle.
 

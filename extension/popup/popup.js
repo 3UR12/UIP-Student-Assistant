@@ -36,6 +36,8 @@
   let lastScan = null;
   let lastWorkflow = null;
   let plannerCandidates = [];
+  let renderEpoch = 0;
+  let workflowState = globalThis.UIPWorkflowUiState.begin(renderEpoch);
 
   const labels = { AREA_PERSONAL: "Área personal", COURSE: "Curso", SECTION: "Módulo", FEEDBACK: "Feedback", OTHER: "Página no reconocida" };
   const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[character]));
@@ -46,7 +48,7 @@
   function diagnosticFor(scan) {
     const diagnostic = globalThis.UIPScannerCore.sanitizeDiagnostic(scan);
     const metadata = globalThis.UIPWorkflowSession && globalThis.UIPWorkflowSession.metadata(lastWorkflow);
-    if (metadata) diagnostic.workflow = metadata;
+    Object.assign(diagnostic, globalThis.UIPWorkflowUiState.diagnosticState(workflowState, metadata));
     return diagnostic;
   }
   function refreshDiagnostic() { if (lastScan) result.textContent = JSON.stringify(diagnosticFor(lastScan), null, 2); }
@@ -105,13 +107,17 @@
     return `${value.sections.filter((item) => item.status === "completed" || item.status === "no-feedback").length} / ${value.sections.length} módulos revisados`;
   }
   function currentWorkflowSection(value) { return value && value.sections.find((item) => item.id === value.currentSectionId) || null; }
-  function updateWorkflow(value) {
-    lastWorkflow = value;
-    refreshDiagnostic();
-    return globalThis.UIPWorkflowSession.save(value);
+  async function updateWorkflow(value, epoch) {
+    const saved = await globalThis.UIPWorkflowSession.save(value);
+    if (Number.isInteger(epoch) && epoch !== renderEpoch) return { ok: false, stale: true, workflow: null };
+    if (saved && saved.ok === true) {
+      lastWorkflow = saved.workflow;
+      refreshDiagnostic();
+    }
+    return saved;
   }
   function navigateWorkflow(value, kind, targetId, beforeNavigate) {
-    if (!value || !targetId) return;
+    if (!value || !targetId || workflowState.loading || workflowState.error) return;
     workflowOpenButton.disabled = true;
     workflowStatus.textContent = "Revalidando el control real de Moodle…";
     const run = () => activeTab((tab) => {
@@ -130,7 +136,16 @@
         });
       });
     });
-    if (beforeNavigate) Promise.resolve(beforeNavigate()).then(run); else run();
+    if (beforeNavigate) {
+      Promise.resolve(beforeNavigate()).then((saved) => {
+        if (!saved || saved.ok !== true) {
+          workflowStatus.textContent = "No se pudo guardar el estado del recorrido. No se navegó.";
+          workflowOpenButton.disabled = false;
+          return;
+        }
+        run();
+      }).catch(() => { workflowStatus.textContent = "No se pudo guardar el estado del recorrido. No se navegó."; workflowOpenButton.disabled = false; });
+    } else run();
   }
   function renderFeedbackList(scan, value) {
     workflowFeedback.replaceChildren();
@@ -149,15 +164,20 @@
     });
   }
   async function renderWorkflow(scan) {
-    const session = globalThis.UIPWorkflowSession;
-    if (!session) return;
-    const value = await session.load();
-    if (scan !== lastScan) return;
-    lastWorkflow = value;
+    const epoch = workflowState.epoch;
+    const value = lastWorkflow;
     if (value && scan.feedbackForm) renderAssistant(scan.feedbackForm);
     workflowFeedback.replaceChildren(); hide(workflowPlanner); hide(workflowReturnCourseButton); hide(workflowCancelButton); setWorkflowAction("", null); workflowStatus.textContent = "";
+    if (workflowState.loading) {
+      workflowSummary.textContent = "Cargando estado del recorrido…";
+      show(workflow); refreshDiagnostic(); return;
+    }
+    if (workflowState.error) {
+      workflowSummary.textContent = "No se pudo cargar el estado del recorrido.";
+      show(workflow); refreshDiagnostic(); return;
+    }
     if (!value) {
-      if (scan.pageType !== "COURSE" || !scan.course || !scan.course.id) { hide(workflow); refreshDiagnostic(); return; }
+      if (!globalThis.UIPWorkflowUiState.canShowPlanner(scan, workflowState)) { hide(workflow); refreshDiagnostic(); return; }
       plannerCandidates = globalThis.UIPScannerCore.workflowPlanCandidates(scan.course, scan.modules || []);
       if (!plannerCandidates.length) { hide(workflow); refreshDiagnostic(); return; }
       workflowSections.replaceChildren();
@@ -188,7 +208,13 @@
       }
       const status = globalThis.UIPScannerCore.classifyWorkflowSection(scan.feedback || []);
       const next = { ...value, sections: value.sections.map((item) => item.id === value.currentSectionId ? { ...item, status } : item) };
-      lastWorkflow = await updateWorkflow(next);
+      const saved = await updateWorkflow(next, epoch);
+      if (epoch !== renderEpoch) return;
+      if (!saved || saved.ok !== true) {
+        workflowSummary.textContent = "No se pudo guardar la clasificación del módulo. No se modificó el recorrido.";
+        workflowStatus.textContent = "Vuelve a escanear antes de continuar.";
+        refreshDiagnostic(); return;
+      }
       workflowSummary.textContent = `Módulo actual: ${status === "needs-review" ? "requiere Feedback" : status === "completed" ? "completado" : status === "no-feedback" ? "sin Feedback" : status === "blocked" ? "bloqueado" : "estado no verificable"} · ${workflowProgress(lastWorkflow)}.`;
       renderFeedbackList(scan, lastWorkflow);
       workflowReturnCourseButton.onclick = () => navigateWorkflow(lastWorkflow, "course-breadcrumb", lastWorkflow.courseId);
@@ -196,7 +222,9 @@
     }
     if (scan.pageType === "FEEDBACK") {
       const page = scan.feedbackPage;
-      if (page && page.id && page.canRespond === true) setWorkflowAction("Abrir formulario", () => navigateWorkflow(value, "response-form", page.id));
+      const action = globalThis.UIPWorkflowUiState.feedbackViewAction(scan);
+      if (action === "form-open") workflowSummary.textContent += " Formulario de Feedback abierto. Usa Feedback Assistant para revisar las respuestas.";
+      else if (action === "open-form") setWorkflowAction("Abrir formulario", () => navigateWorkflow(value, "response-form", page.id));
       else workflowSummary.textContent += " El formulario no está disponible o no es verificable.";
       refreshDiagnostic(); return;
     }
@@ -215,8 +243,11 @@
     workflowSummary.textContent += " Abre el curso o el módulo correspondiente para continuar.";
     refreshDiagnostic();
   }
-  function render(scan) {
+  async function render(scan) {
+    const epoch = ++renderEpoch;
     lastScan = scan;
+    lastWorkflow = null;
+    workflowState = globalThis.UIPWorkflowUiState.begin(epoch);
     const type = labels[scan.pageType] || labels.OTHER;
     if (scan.sessionApparentlyNotStarted) setStatus("Sesión aparentemente no iniciada.");
     else if (scan.pageType === "OTHER") setStatus("Moodle detectado · Página no reconocida.");
@@ -225,11 +256,20 @@
     const partial = scan.partial ? "<p><strong>Escaneo parcial:</strong> algunos elementos no pudieron analizarse.</p>" : "";
     summary.innerHTML = `<p><strong>Página:</strong> ${type}</p>${course}<dl><dt>Cursos detectados</dt><dd>${scan.summary.courses}</dd><dt>Módulos detectados</dt><dd>${scan.summary.modules}</dd><dt>Disponibles (confirmados)</dt><dd>${scan.summary.modulesAvailable}</dd><dt>Bloqueados (confirmados)</dt><dd>${scan.summary.modulesLocked}</dd><dt>Actividades</dt><dd>${scan.summary.activities}</dd><dt>Feedback</dt><dd>${scan.summary.feedback}</dd><dt>Feedback completados</dt><dd>${scan.summary.feedbackCompleted}</dd><dt>Feedback pendientes (confirmados)</dt><dd>${scan.summary.feedbackPending}</dd></dl>${partial}`;
     result.textContent = JSON.stringify(diagnosticFor(scan), null, 2);
+    copyButton.disabled = true;
     show(summary); show(details); show(copyButton);
     renderAssistant(scan.feedbackForm);
     renderSubmission(scan.feedbackSubmission);
     renderNavigation(scan);
     renderWorkflow(scan);
+    const loaded = await globalThis.UIPWorkflowSession.load();
+    const hydration = globalThis.UIPWorkflowUiState.hydrate(workflowState, epoch, loaded);
+    if (!hydration.apply || epoch !== renderEpoch) return;
+    workflowState = hydration.state;
+    lastWorkflow = workflowState.workflow;
+    await renderWorkflow(scan);
+    refreshDiagnostic();
+    copyButton.disabled = !globalThis.UIPWorkflowUiState.canCopy(workflowState);
   }
 
   scanButton.addEventListener("click", () => {
@@ -284,16 +324,34 @@
   });
 
   startWorkflowButton.addEventListener("click", () => {
-    if (!lastScan || !lastScan.course) return;
+    if (!globalThis.UIPWorkflowUiState.canShowPlanner(lastScan, workflowState)) return;
     const selected = Array.from(workflowSections.querySelectorAll('input[type="checkbox"]:checked')).map((input) => input.value);
     const plan = globalThis.UIPScannerCore.createWorkflowPlan(lastScan.course.id, workflowPreference.value, plannerCandidates, selected);
     if (!plan) { workflowStatus.textContent = "Elige al menos un módulo disponible y una valoración explícita."; return; }
     startWorkflowButton.disabled = true;
-    updateWorkflow(plan).then(() => { workflowStatus.textContent = "Plan listo. Abre explícitamente el siguiente módulo."; renderWorkflow(lastScan); });
+    updateWorkflow(plan).then((saved) => {
+      if (!saved || saved.ok !== true) {
+        workflowStatus.textContent = "No se pudo guardar el recorrido. No se inició.";
+        startWorkflowButton.disabled = false;
+        return;
+      }
+      workflowStatus.textContent = "Plan listo. Abre explícitamente el siguiente módulo.";
+      renderWorkflow(lastScan);
+    });
   });
   workflowCancelButton.addEventListener("click", () => {
-    if (!lastWorkflow || !window.confirm("¿Cancelar este recorrido? Moodle no se modificará.")) return;
-    globalThis.UIPWorkflowSession.clear().then(() => { lastWorkflow = null; workflowStatus.textContent = "Recorrido cancelado."; renderWorkflow(lastScan); });
+    if (workflowState.loading || workflowState.error || !lastWorkflow || !window.confirm("¿Cancelar este recorrido? Moodle no se modificará.")) return;
+    workflowCancelButton.disabled = true;
+    globalThis.UIPWorkflowSession.clear().then((cleared) => {
+      if (!cleared || cleared.ok !== true) {
+        workflowStatus.textContent = "No se pudo cancelar el recorrido.";
+        workflowCancelButton.disabled = false;
+        return;
+      }
+      lastWorkflow = null;
+      workflowStatus.textContent = "Recorrido cancelado.";
+      renderWorkflow(lastScan);
+    });
   });
 
   reviewSubmitButton.addEventListener("click", () => {
@@ -375,7 +433,7 @@
   });
 
   copyButton.addEventListener("click", async () => {
-    if (!lastScan) return;
+    if (!lastScan || !globalThis.UIPWorkflowUiState.canCopy(workflowState)) return;
     try {
       await navigator.clipboard.writeText(JSON.stringify(diagnosticFor(lastScan), null, 2));
       setStatus("Diagnóstico sanitizado copiado al portapapeles.");
