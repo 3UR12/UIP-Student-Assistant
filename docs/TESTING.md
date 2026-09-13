@@ -23,9 +23,10 @@ node tests/workflow-service.test.js
 node tests/dashboard-ux.test.js
 node tests/automation-e2e.test.js --repeat=20
 node tests/lifecycle-idempotency.test.js
+node tests/recovery-service-worker.test.js
 ```
 
-`core-smoke.test.js` retains scanner regression checks. The retired v0.4 popup-hydration test was intentionally removed because popup orchestration no longer exists. `automation-engine.test.js` covers state transitions, login, timeout, pause, cancel, duplicate-submission protection, and storage sanitization. `workflow-service.test.js` covers the MV3 message boundary, discovery, persisted run creation, alarms, dashboard closure, worker-tab recovery, and duplicate page-ready/tab events with a deterministic Chrome mock. `dashboard-ux.test.js` enforces the dashboard's visible state/control contract. `automation-e2e.test.js --repeat=20` simulates a two-module fully automatic run twenty times. `lifecycle-idempotency.test.js` covers restart boundaries, duplicate events, worker loss, login recovery, and bounded watchdog behavior.
+`core-smoke.test.js` retains scanner regression checks. The retired v0.4 popup-hydration test was intentionally removed because popup orchestration no longer exists. `automation-engine.test.js` covers state transitions, login, timeout, pause, cancel, duplicate-submission protection, and storage sanitization. `workflow-service.test.js` covers the MV3 message boundary, discovery, persisted run creation, alarms, dashboard closure, worker-tab rebinding, and duplicate page-ready/tab events with a deterministic Chrome mock. `dashboard-ux.test.js` enforces the dashboard's visible state/control contract. `automation-e2e.test.js --repeat=20` simulates a two-module fully automatic run twenty times, including a worker-tab close/rebind/resume run. `lifecycle-idempotency.test.js` covers restart boundaries, duplicate events, worker loss, login recovery, and bounded watchdog behavior. `recovery-service-worker.test.js` proves that a restarted service worker re-arms its watchdog, survives a missing initial scan, and reuses an already-open dashboard tab.
 
 ## Dashboard Discovery
 

@@ -156,9 +156,15 @@
   api.resume = function resume(value) {
     const workflow = api.sanitize(value);
     if (!workflow || !["PAUSED", "LOGIN_REQUIRED"].includes(workflow.status)) return { workflow, effect: null };
+    if (!Number.isInteger(workflow.workerTabId) || workflow.workerTabId <= 0) return { workflow, effect: null };
     const phase = workflow.phase === "LOGIN_REQUIRED" ? "OPEN_SECTION" : workflow.phase === "PAUSED" ? "OPEN_SECTION" : workflow.phase;
     const next = touch(workflow, { status: "RUNNING", phase, semantic: "Reanudando recorrido…", pauseRequested: false, lastError: null });
     return { workflow: next, effect: effect("NAVIGATE", { url: phase === "OPEN_SECTION" ? currentModule(next).url : next.course.url }) };
+  };
+  api.bindWorker = function bindWorker(value, tabId) {
+    const workflow = api.sanitize(value);
+    if (!workflow || ["DONE", "CANCELLED", "ERROR"].includes(workflow.status) || !Number.isInteger(tabId) || tabId <= 0) return workflow;
+    return touch(workflow, { workerTabId: tabId, semantic: "Pestaña de Moodle lista para continuar.", lastError: null, lastSafeEvent: "worker-bound" });
   };
   api.cancel = function cancel(value) {
     const workflow = api.sanitize(value);
@@ -167,7 +173,7 @@
   };
   api.workerClosed = function workerClosed(value) {
     const workflow = api.sanitize(value);
-    if (!workflow || !["RUNNING", "READY_TO_START"].includes(workflow.status)) return workflow;
+    if (!workflow || !["RUNNING", "READY_TO_START", "LOGIN_REQUIRED"].includes(workflow.status)) return workflow;
     return touch(workflow, { status: "PAUSED", phase: "PAUSED", semantic: "La pestaña de Moodle se cerró.", workerTabId: null, lastError: message("worker-tab-closed", "La pestaña de Moodle se cerró. Reábrela para continuar.") });
   };
   api.timeout = function timeout(value) {

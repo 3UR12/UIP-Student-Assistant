@@ -35,11 +35,26 @@ function runAutomatedScenario(options = {}) {
   const submitCount = new Map();
   const history = [];
   let userActionsAfterStart = 0;
+  let recoveryActions = 0;
+  let workerRecovered = false;
   let guard = 0;
 
   while (workflow.status !== "DONE") {
     assert.ok(guard++ < 100, `workflow stuck in ${workflow.phase}`);
     assert.ok(effect, `workflow stopped without terminal state in ${workflow.phase}`);
+    if (options.workerRecovery === true && !workerRecovered && workflow.currentModuleIndex === 0 && effect.type === "NAVIGATE" && effect.url.includes("/course/section.php")) {
+      const paused = engine.workerClosed(workflow);
+      assert.equal(paused.status, "PAUSED");
+      const rebound = engine.bindWorker(paused, options.recoveryWorkerTabId || 97);
+      assert.equal(rebound.workerTabId, options.recoveryWorkerTabId || 97);
+      const resumed = engine.resume(rebound);
+      assert.equal(resumed.workflow.status, "RUNNING");
+      workflow = resumed.workflow;
+      effect = resumed.effect;
+      recoveryActions += 1;
+      workerRecovered = true;
+      continue;
+    }
     history.push({ type: effect.type, phase: workflow.phase, module: workflow.currentModuleIndex, feedbackId: workflow.currentFeedbackId || null });
     let transition;
     const module = workflow.modules[workflow.currentModuleIndex];
@@ -80,7 +95,7 @@ function runAutomatedScenario(options = {}) {
     }
   }
 
-  return { workflow, submitCount, history, userActionsAfterStart };
+  return { workflow, submitCount, history, userActionsAfterStart, recoveryActions };
 }
 
 const repeats = Number((process.argv.find((argument) => argument.startsWith("--repeat=")) || "--repeat=1").split("=")[1]);
@@ -106,5 +121,14 @@ assert.equal(multi.workflow.progress.submitted, 2);
 assert.equal(multi.submitCount.get("8801"), undefined);
 assert.equal(multi.submitCount.get("8802"), 1);
 assert.equal(multi.submitCount.get("8803"), 1);
+
+const workerRecovery = runAutomatedScenario({ workerRecovery: true, recoveryWorkerTabId: 112 });
+assert.equal(workerRecovery.workflow.status, "DONE");
+assert.equal(workerRecovery.workflow.workerTabId, 112);
+assert.equal(workerRecovery.workflow.progress.reviewed, 2);
+assert.equal(workerRecovery.workflow.progress.submitted, 2);
+assert.equal(Array.from(workerRecovery.submitCount.values()).every((count) => count === 1), true);
+assert.equal(workerRecovery.recoveryActions, 1);
+assert.equal(workerRecovery.userActionsAfterStart, 0);
 
 console.log(`automation e2e passed ${repeats}/${repeats}`);

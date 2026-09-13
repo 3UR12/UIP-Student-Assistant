@@ -40,6 +40,11 @@ async function saveWorkflow(value) {
   notifyDashboard();
   return { ok: true, workflow: verified.workflow };
 }
+async function persistWorkflow(value) {
+  const saved = await saveWorkflow(value);
+  if (saved.ok) await armWatchdog(saved.workflow);
+  return saved;
+}
 async function clearWorkflow() {
   try { await chrome.storage.session.remove(WORKFLOW_KEY); await chrome.alarms.clear(WATCHDOG_ALARM); notifyDashboard(); return { ok: true }; }
   catch (_) { return { ok: false, error: "workflow-storage-unavailable" }; }
@@ -86,11 +91,12 @@ async function armWatchdog(workflow) {
   await chrome.alarms.create(WATCHDOG_ALARM, { delayInMinutes: WAIT_TIMEOUT_MINUTES });
 }
 async function applyTransition(result) {
-  if (!result || !result.workflow) return;
+  if (!result || !result.workflow) return { ok: false, error: "workflow-invalid" };
   const saved = await saveWorkflow(result.workflow);
-  if (!saved.ok) return;
+  if (!saved.ok) return saved;
   await armWatchdog(saved.workflow);
   if (result.effect) await executeEffect(saved.workflow, result.effect);
+  return { ok: true, workflow: saved.workflow };
 }
 async function executeEffect(workflow, action) {
   if (!workflow || !action || !Number.isInteger(workflow.workerTabId)) return;
@@ -177,15 +183,30 @@ async function openDashboard() {
     const previous = await tabsGet(dashboardTabId);
     if (previous) { await tabsUpdate(dashboardTabId, { active: true }); return; }
   }
-  const tab = await tabsCreate({ url: chrome.runtime.getURL("dashboard/dashboard.html"), active: true });
+  const dashboardUrl = chrome.runtime.getURL("dashboard/dashboard.html");
+  const existing = (await tabsQuery({ url: dashboardUrl })).find((tab) => tab && tab.url === dashboardUrl);
+  if (existing) { dashboardTabId = existing.id; await tabsUpdate(existing.id, { active: true }); return; }
+  const tab = await tabsCreate({ url: dashboardUrl, active: true });
   dashboardTabId = tab && tab.id || null;
+}
+async function openMoodleWorker() {
+  const tab = await ensureWorker();
+  if (!tab || !Number.isInteger(tab.id)) return { ok: false, error: "worker-unavailable" };
+  const loaded = await loadWorkflow();
+  if (!loaded.ok) return loaded;
+  if (loaded.workflow && loaded.workflow.workerTabId !== tab.id) {
+    const bound = engine.bindWorker(loaded.workflow, tab.id);
+    const saved = await persistWorkflow(bound);
+    if (!saved.ok) return saved;
+  }
+  return { ok: true, workerTabId: tab.id };
 }
 
 chrome.action.onClicked.addListener(() => { openDashboard(); });
 chrome.tabs.onRemoved.addListener(async (tabId) => {
   if (tabId === dashboardTabId) dashboardTabId = null;
   const workflow = await loadWorkflow();
-  if (workflow.ok && workflow.workflow && workflow.workflow.workerTabId === tabId) await saveWorkflow(engine.workerClosed(workflow.workflow));
+  if (workflow.ok && workflow.workflow && workflow.workflow.workerTabId === tabId) await persistWorkflow(engine.workerClosed(workflow.workflow));
 });
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (changeInfo.status === "complete" && isMoodleUrl(tab && tab.url)) scanWorker(tabId);
@@ -203,10 +224,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "UIP_AUTOMATION_DISCOVER_COURSES") return respond(beginCourseDiscovery(sender));
   if (message.type === "UIP_AUTOMATION_SELECT_COURSE") return respond(selectCourse(message.course));
   if (message.type === "UIP_AUTOMATION_START") return respond(startRun(message));
-  if (message.type === "UIP_AUTOMATION_PAUSE") return respond(loadWorkflow().then((result) => result.ok && result.workflow ? saveWorkflow(engine.pause(result.workflow)) : result));
-  if (message.type === "UIP_AUTOMATION_RESUME") return respond(loadWorkflow().then(async (result) => { if (!result.ok || !result.workflow) return result; await applyTransition(engine.resume(result.workflow)); return { ok: true }; }));
-  if (message.type === "UIP_AUTOMATION_CANCEL") return respond(loadWorkflow().then((result) => result.ok && result.workflow ? saveWorkflow(engine.cancel(result.workflow)) : result));
-  if (message.type === "UIP_AUTOMATION_OPEN_MOODLE") return respond(ensureWorker().then((tab) => tab ? ({ ok: true, workerTabId: tab.id }) : ({ ok: false, error: "worker-unavailable" })));
+  if (message.type === "UIP_AUTOMATION_PAUSE") return respond(loadWorkflow().then((result) => result.ok && result.workflow ? persistWorkflow(engine.pause(result.workflow)) : result));
+  if (message.type === "UIP_AUTOMATION_RESUME") return respond(loadWorkflow().then(async (result) => {
+    if (!result.ok || !result.workflow) return result;
+    if (!Number.isInteger(result.workflow.workerTabId)) return { ok: false, error: "worker-not-bound" };
+    const applied = await applyTransition(engine.resume(result.workflow));
+    return applied && applied.ok ? { ok: true } : applied || { ok: false, error: "workflow-save-verification-failed" };
+  }));
+  if (message.type === "UIP_AUTOMATION_CANCEL") return respond(loadWorkflow().then((result) => result.ok && result.workflow ? persistWorkflow(engine.cancel(result.workflow)) : result));
+  if (message.type === "UIP_AUTOMATION_OPEN_MOODLE") return respond(openMoodleWorker());
   if (message.type === "UIP_AUTOMATION_NEW_RUN") return respond(clearWorkflow());
   return undefined;
 });
@@ -215,6 +241,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 // request one fresh DOM scan when a run was active before reclamation.
 loadWorkflow().then(async (result) => {
   if (!result.ok || !result.workflow || !["RUNNING", "LOGIN_REQUIRED"].includes(result.workflow.status)) return;
-  armWatchdog();
+  await armWatchdog(result.workflow);
   if (Number.isInteger(result.workflow.workerTabId)) await scanWorker(result.workflow.workerTabId);
 }).catch(() => undefined);

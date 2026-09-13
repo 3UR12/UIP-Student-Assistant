@@ -36,7 +36,7 @@ No effect is authorized by stale storage alone. Every operation is guarded by th
 
 The workflow stores version, run ID, status/phase, worker tab ID, canonical course/module IDs and URLs, selected rating, module states, aggregate counts, a safe last event, retry count, and a sanitized error. It intentionally excludes DOM fragments, hidden fields, form values, submission bodies, tokens, cookies, diagnostics, and credentials.
 
-At most one watchdog retry re-scans a stalled step. A second timeout marks the current module manual-required and continues without repeating a verified submission. Closing the worker tab pauses safely. A login page moves the run to `LOGIN_REQUIRED`; the extension never attempts authentication and can resume only after the normal Moodle session is visible again. The service worker restores the watchdog and requests a fresh scan when it wakes during an active run.
+At most one watchdog retry re-scans a stalled step. A second timeout marks the current module manual-required and continues without repeating a verified submission. Closing the worker tab pauses safely. Reopening Moodle binds and persists the new tab ID before Resume is allowed. A login page moves the run to `LOGIN_REQUIRED`; the extension never attempts authentication and can resume only after the normal Moodle session is visible again. The service worker restores the watchdog with the persisted workflow and requests a fresh scan when it wakes during an active run.
 
 ## API And Click Audit
 

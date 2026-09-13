@@ -44,6 +44,7 @@ node tests/workflow-service.test.js
 node tests/dashboard-ux.test.js
 node tests/automation-e2e.test.js --repeat=20
 node tests/lifecycle-idempotency.test.js
+node tests/recovery-service-worker.test.js
 ```
 
 Read the [manual runbook](docs/TESTING.md), [architecture](docs/ARCHITECTURE.md), [Moodle workflow](docs/MOODLE-FLOW.md), and [security model](docs/SECURITY.md) before an authenticated validation.

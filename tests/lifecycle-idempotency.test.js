@@ -76,7 +76,13 @@ assert.equal(transition.workflow.progress.submitted, 1);
 const workerLost = engine.workerClosed(engine.start(configured()).workflow);
 assert.equal(workerLost.status, "PAUSED");
 assert.equal(workerLost.lastError.code, "worker-tab-closed");
-const resumed = engine.resume(workerLost);
+assert.equal(engine.resume(workerLost).workflow.status, "PAUSED");
+assert.equal(engine.bindWorker(workerLost, 0).workerTabId, null);
+const reboundWorker = engine.bindWorker(workerLost, 93);
+assert.equal(reboundWorker.workerTabId, 93);
+assert.equal(reboundWorker.runId, workerLost.runId);
+assert.ok(reboundWorker.transition > workerLost.transition);
+const resumed = engine.resume(reboundWorker);
 assert.equal(resumed.workflow.status, "RUNNING");
 assert.equal(resumed.effect.type, "NAVIGATE");
 
