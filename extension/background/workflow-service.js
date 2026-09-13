@@ -8,13 +8,21 @@ const MOODLE_ORIGIN = "https://moodle.uip.edu.pa";
 const MOODLE_HOME = `${MOODLE_ORIGIN}/my/`;
 const WAIT_TIMEOUT_MINUTES = 0.5;
 let dashboardTabId = null;
-let driving = false;
+let scanPumpRunning = false;
+const pendingScans = [];
+const activeScanKeys = new Map();
+const processedScanKeys = new Map();
 
 const engine = globalThis.UIPAutomationEngine;
 const isMoodleUrl = (value) => {
   try { const url = new URL(value); return url.protocol === "https:" && url.origin === MOODLE_ORIGIN; } catch (_) { return false; }
 };
 const runtimeError = () => chrome.runtime.lastError ? chrome.runtime.lastError.message : null;
+const observedModuleName = (value) => typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, 180) || null : null;
+const isSelectableModule = (module) => {
+  const name = observedModuleName(module && module.name);
+  return module && module.available === true && module.locked !== true && Boolean(name) && !/^(general|secci[oó]n general|general section)$/i.test(name);
+};
 const storageGet = async (key) => {
   try { return { ok: true, value: (await chrome.storage.session.get(key))[key] }; }
   catch (_) { return { ok: false, error: "workflow-storage-unavailable" }; }
@@ -58,7 +66,11 @@ async function loadDiscovery() {
 async function saveDiscovery(value) {
   const safe = {
     courses: Array.isArray(value && value.courses) ? value.courses.slice(0, 200).map((course) => ({ id: typeof course.id === "string" ? course.id : null, url: isMoodleUrl(course.url) ? course.url : null, name: typeof course.name === "string" ? course.name.slice(0, 300) : null })).filter((course) => course.id && course.url) : [],
-    modules: Array.isArray(value && value.modules) ? value.modules.slice(0, 300).map((module) => ({ id: typeof module.id === "string" ? module.id : null, url: isMoodleUrl(module.url) ? module.url : null, name: typeof module.name === "string" ? module.name.slice(0, 180) : null, available: module.available === true ? true : module.available === false ? false : null, locked: module.locked === true ? true : module.locked === false ? false : null, restrictionText: typeof module.restrictionText === "string" ? module.restrictionText.slice(0, 300) : null, sectionNumber: Number.isInteger(module.sectionNumber) ? module.sectionNumber : null })).filter((module) => module.id && module.url) : [],
+    modules: Array.isArray(value && value.modules) ? value.modules.slice(0, 300).map((module) => {
+      const name = observedModuleName(module && module.name);
+      const safe = { id: typeof module.id === "string" ? module.id : null, url: isMoodleUrl(module.url) ? module.url : null, name, available: module.available === true ? true : module.available === false ? false : null, locked: module.locked === true ? true : module.locked === false ? false : null, restrictionText: typeof module.restrictionText === "string" ? module.restrictionText.slice(0, 300) : null, sectionNumber: Number.isInteger(module.sectionNumber) ? module.sectionNumber : null };
+      return { ...safe, selectable: isSelectableModule(safe) };
+    }).filter((module) => module.id && module.url) : [],
     course: value && value.course && typeof value.course.id === "string" && isMoodleUrl(value.course.url) ? { id: value.course.id, url: value.course.url, name: typeof value.course.name === "string" ? value.course.name.slice(0, 300) : null } : null,
     updatedAt: Date.now(), error: value && typeof value.error === "string" ? value.error.slice(0, 120) : null
   };
@@ -105,11 +117,12 @@ async function executeEffect(workflow, action) {
     await tabsUpdate(workflow.workerTabId, { url: action.url });
     return;
   }
+  if (action.type === "PROCESS_SCAN") { await enqueueScan(workflow.workerTabId, action.scan); return; }
   if (action.type === "SCAN") { await scanWorker(workflow.workerTabId); return; }
   let response = null;
-  if (action.type === "PREFILL") response = await sendToWorker(workflow.workerTabId, { type: "UIP_PREFILL_FEEDBACK", ...action });
-  if (action.type === "SUBMIT") response = await sendToWorker(workflow.workerTabId, { type: "UIP_SUBMIT_FEEDBACK", ...action });
-  if (action.type === "CONTINUE") response = await sendToWorker(workflow.workerTabId, { type: "UIP_NAVIGATE_CONTINUE", ...action });
+  if (action.type === "PREFILL") response = await sendToWorker(workflow.workerTabId, { ...action, type: "UIP_PREFILL_FEEDBACK" });
+  if (action.type === "SUBMIT") response = await sendToWorker(workflow.workerTabId, { ...action, type: "UIP_SUBMIT_FEEDBACK" });
+  if (action.type === "CONTINUE") response = await sendToWorker(workflow.workerTabId, { ...action, type: "UIP_NAVIGATE_CONTINUE" });
   const current = await loadWorkflow();
   if (!current.ok || !current.workflow || current.workflow.runId !== workflow.runId || current.workflow.transition !== workflow.transition) return;
   if (action.type === "PREFILL") await applyTransition(engine.onPrefill(current.workflow, response));
@@ -119,7 +132,7 @@ async function executeEffect(workflow, action) {
 async function scanWorker(tabId) {
   if (!Number.isInteger(tabId)) return;
   const response = await sendToWorker(tabId, { type: "UIP_SCAN_CURRENT_DOCUMENT" });
-  if (response && response.ok && response.scan) await handleScan(tabId, response.scan);
+  if (response && response.ok && response.scan) await enqueueScan(tabId, response.scan);
 }
 async function handleDiscovery(scan) {
   const current = await loadDiscovery();
@@ -128,9 +141,7 @@ async function handleDiscovery(scan) {
   if (scan.pageType === "AREA_PERSONAL") await saveDiscovery({ ...current.discovery, courses: scan.courses || [], error: null });
   if (scan.pageType === "COURSE" && scan.course && scan.course.id) await saveDiscovery({ ...current.discovery, course: scan.course, modules: scan.modules || [], error: null });
 }
-async function handleScan(tabId, scan) {
-  if (driving) return;
-  driving = true;
+async function processScan(tabId, scan) {
   try {
     const loaded = await loadWorkflow();
     if (!loaded.ok) return;
@@ -138,7 +149,40 @@ async function handleScan(tabId, scan) {
     if (loaded.workflow.workerTabId !== tabId) return;
     if (loaded.workflow.status === "LOGIN_REQUIRED" && scan.sessionApparentlyNotStarted !== true) { await applyTransition(engine.resume(loaded.workflow)); return; }
     await applyTransition(engine.onScan(loaded.workflow, scan));
-  } finally { driving = false; }
+  } catch (_) {
+    // The watchdog remains armed for RUNNING workflows if a scan cannot be processed.
+  }
+}
+async function enqueueScan(tabId, scan) {
+  if (!Number.isInteger(tabId) || !scan || typeof scan !== "object") return;
+  const key = JSON.stringify({
+    pageType: scan.pageType || null,
+    courseId: scan.course && scan.course.id || null,
+    sectionId: scan.currentSection && scan.currentSection.id || null,
+    feedbackId: scan.feedbackPage && scan.feedbackPage.id || scan.feedbackForm && scan.feedbackForm.id || null,
+    formSignature: scan.feedbackForm && scan.feedbackForm.signature || null,
+    readyToSubmit: scan.feedbackSubmission && scan.feedbackSubmission.readyToSubmit === true,
+    resultId: scan.feedbackResult && scan.feedbackResult.feedbackId || null,
+    submissionVerified: scan.feedbackResult && scan.feedbackResult.submissionVerified === true,
+    feedback: Array.isArray(scan.feedback) ? scan.feedback.map((item) => [item && item.id || null, item && item.completionState || null, item && item.available === true]).slice(0, 50) : []
+  });
+  if (activeScanKeys.get(tabId) === key || processedScanKeys.get(tabId) === key) return;
+  if (pendingScans.some((item) => item.tabId === tabId && item.key === key)) return;
+  // Identical observations coalesce; every distinct DOM state stays queued.
+  pendingScans.push({ tabId, scan, key });
+  if (scanPumpRunning) return;
+  scanPumpRunning = true;
+  try {
+    while (pendingScans.length) {
+      const next = pendingScans.shift();
+      activeScanKeys.set(next.tabId, next.key);
+      await processScan(next.tabId, next.scan);
+      activeScanKeys.delete(next.tabId);
+      processedScanKeys.set(next.tabId, next.key);
+    }
+  } finally {
+    scanPumpRunning = false;
+  }
 }
 async function beginCourseDiscovery(sender) {
   const worker = await ensureWorker(sender && sender.tab && sender.tab.id);
@@ -166,7 +210,7 @@ async function startRun(message) {
   const worker = await ensureWorker();
   if (!worker) return { ok: false, error: "worker-unavailable" };
   const selected = new Set(Array.isArray(message.moduleIds) ? message.moduleIds.filter((id) => typeof id === "string") : []);
-  const modules = discovery.discovery.modules.filter((module) => selected.has(module.id) && module.available === true && module.locked !== true);
+  const modules = discovery.discovery.modules.filter((module) => selected.has(module.id) && module.selectable === true);
   const workflow = engine.create({ course: discovery.discovery.course, modules, preference: message.preference, workerTabId: worker.id });
   if (!workflow) return { ok: false, error: "invalid-configuration" };
   const saved = await saveWorkflow(workflow);
@@ -219,7 +263,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message) return undefined;
   const respond = (promise) => { Promise.resolve(promise).then(sendResponse).catch(() => sendResponse({ ok: false, error: "background-unavailable" })); return true; };
-  if (message.type === "UIP_MOODLE_PAGE_READY") { handleScan(sender.tab && sender.tab.id, message.scan || null); return false; }
+  if (message.type === "UIP_MOODLE_PAGE_READY") { enqueueScan(sender.tab && sender.tab.id, message.scan || null); return false; }
   if (message.type === "UIP_AUTOMATION_GET_STATE") return respond(currentState());
   if (message.type === "UIP_AUTOMATION_DISCOVER_COURSES") return respond(beginCourseDiscovery(sender));
   if (message.type === "UIP_AUTOMATION_SELECT_COURSE") return respond(selectCourse(message.course));

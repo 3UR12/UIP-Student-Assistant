@@ -14,7 +14,7 @@ The browser's normal Moodle session renders the page. The content script reports
 
 ## Persisted Data
 
-`chrome.storage.session` contains only sanitized workflow and discovery metadata: version, run ID, status/phase, worker tab ID, canonical Moodle IDs and URLs, truncated course/module names, selected rating, per-module outcome counts, retry state, and a safe error reason. It excludes DOM fragments, hidden inputs, response values, form signatures, tokens, cookies, credentials, message content, and diagnostics. Every workflow write is sanitized and verified by an immediate read-back.
+`chrome.storage.session` contains only sanitized workflow and discovery metadata: version, run ID, status/phase, worker tab ID, canonical Moodle IDs and URLs, truncated course/module names, selected rating, per-module outcome counts, retry state, safe timestamps, and a bounded activity log of safe labels with module/Feedback IDs and observed names. It excludes DOM fragments, hidden inputs, response values, form signatures, tokens, cookies, credentials, message content, and diagnostics. Every workflow write is sanitized and verified by an immediate read-back.
 
 ## Manifest Permissions
 

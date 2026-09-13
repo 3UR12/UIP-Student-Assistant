@@ -49,8 +49,26 @@
     workflow.progress = progress;
     return workflow;
   }
+  function safeActivity(item) {
+    if (!item || typeof item !== "object") return null;
+    const timestamp = Number.isFinite(item.timestamp) ? item.timestamp : null;
+    const type = text(item.type, 80);
+    const label = text(item.label, 180);
+    if (!timestamp || !type || !label) return null;
+    return { timestamp, type, moduleId: validId(item.moduleId) ? item.moduleId : null, moduleName: text(item.moduleName), feedbackId: validId(item.feedbackId) ? item.feedbackId : null, feedbackName: text(item.feedbackName), label };
+  }
+  function appendActivity(workflow, patch, timestamp) {
+    const module = currentModule(workflow);
+    const feedback = module && workflow.currentFeedbackId && module.feedbackSummary.find((item) => item.id === workflow.currentFeedbackId);
+    const label = text(patch.semantic, 180) || text(patch.lastSafeEvent, 180) || "Actualización de recorrido";
+    const type = text(patch.lastSafeEvent, 80) || text(patch.phase, 80) || "state-change";
+    const activity = { timestamp, type, moduleId: module && module.id || null, moduleName: module && module.name || null, feedbackId: workflow.currentFeedbackId, feedbackName: feedback && feedback.name || null, label };
+    return (workflow.activityLog || []).concat([activity]).slice(-30);
+  }
   function touch(workflow, patch) {
-    const next = { ...workflow, ...patch, transition: (workflow.transition || 0) + 1, updatedAt: now() };
+    const timestamp = now();
+    const phaseChanged = patch.phase && patch.phase !== workflow.phase;
+    const next = { ...workflow, ...patch, transition: (workflow.transition || 0) + 1, updatedAt: timestamp, lastActivityAt: timestamp, stepStartedAt: phaseChanged ? timestamp : workflow.stepStartedAt, activityLog: appendActivity(workflow, patch, timestamp) };
     return recomputeProgress(next);
   }
   function currentModule(workflow) { return workflow.modules[workflow.currentModuleIndex] || null; }
@@ -106,6 +124,9 @@
       currentModuleIndex: 0,
       currentFeedbackId: null,
       progress: emptyProgress(selected.length),
+      activityLog: [],
+      stepStartedAt: now(),
+      lastActivityAt: now(),
       rules: { maxWaitRetries: 1, revalidateBeforeAction: true, requireVerifiedSubmission: true },
       waitRetries: 0,
       pauseRequested: false,
@@ -128,7 +149,7 @@
       workerTabId: Number.isInteger(value.workerTabId) ? value.workerTabId : null,
       course: { id: value.course.id, url: courseUrl, name: text(value.course.name) }, preference, modules,
       currentModuleIndex: value.currentModuleIndex, currentFeedbackId: validId(value.currentFeedbackId) ? value.currentFeedbackId : null,
-      progress: emptyProgress(modules.length), rules: { maxWaitRetries: 1, revalidateBeforeAction: true, requireVerifiedSubmission: true }, waitRetries: Number.isInteger(value.waitRetries) && value.waitRetries >= 0 && value.waitRetries <= 1 ? value.waitRetries : 0, pauseRequested: value.pauseRequested === true,
+      progress: emptyProgress(modules.length), activityLog: Array.isArray(value.activityLog) ? value.activityLog.slice(-30).map(safeActivity).filter(Boolean) : [], stepStartedAt: Number.isFinite(value.stepStartedAt) ? value.stepStartedAt : now(), lastActivityAt: Number.isFinite(value.lastActivityAt) ? value.lastActivityAt : now(), rules: { maxWaitRetries: 1, revalidateBeforeAction: true, requireVerifiedSubmission: true }, waitRetries: Number.isInteger(value.waitRetries) && value.waitRetries >= 0 && value.waitRetries <= 1 ? value.waitRetries : 0, pauseRequested: value.pauseRequested === true,
       lastSafeEvent: text(value.lastSafeEvent, 100), lastError: value.lastError && { code: text(value.lastError.code, 80), message: text(value.lastError.message, 300) },
       updatedAt: Number.isFinite(value.updatedAt) ? value.updatedAt : now()
     };
@@ -139,7 +160,8 @@
     const workflow = api.sanitize(value);
     if (!workflow) return null;
     const module = currentModule(workflow);
-    return { runId: workflow.runId, status: workflow.status, phase: workflow.phase, semantic: workflow.semantic, course: workflow.course, currentModule: module && { id: module.id, name: module.name, status: module.status }, progress: workflow.progress, lastError: workflow.lastError, updatedAt: workflow.updatedAt };
+    const feedback = module && workflow.currentFeedbackId && module.feedbackSummary.find((item) => item.id === workflow.currentFeedbackId);
+    return { runId: workflow.runId, transition: workflow.transition, status: workflow.status, phase: workflow.phase, semantic: workflow.semantic, course: workflow.course, currentModule: module && { id: module.id, name: module.name, status: module.status }, currentFeedback: workflow.currentFeedbackId && { id: workflow.currentFeedbackId, name: feedback && feedback.name || null }, modules: workflow.modules.map((item) => ({ id: item.id, name: item.name, status: item.status })), progress: workflow.progress, activityLog: workflow.activityLog, workerConnected: Number.isInteger(workflow.workerTabId), workerTabId: workflow.workerTabId, waitRetries: workflow.waitRetries, lastSafeEvent: workflow.lastSafeEvent, stepStartedAt: workflow.stepStartedAt, lastActivityAt: workflow.lastActivityAt, lastError: workflow.lastError, updatedAt: workflow.updatedAt };
   };
   api.start = function start(value) {
     const workflow = api.sanitize(value);
@@ -243,7 +265,8 @@
     const workflow = api.sanitize(value);
     if (!workflow || workflow.status !== "RUNNING" || workflow.phase !== "VERIFY_FORM") return { workflow, effect: null };
     if (!result || result.ok !== true || !result.prefillResult || result.prefillResult.staleForm === true) return api.markCurrentFeedback(workflow, "manual-required", "prefill-unverified");
-    return { workflow: touch(workflow, { phase: "VERIFY_FORM", semantic: "Verificando respuestas…" }), effect: effect("SCAN", {}) };
+    const next = touch(workflow, { phase: "VERIFY_FORM", semantic: "Verificando respuestas…", lastSafeEvent: "prefill-completed" });
+    return { workflow: next, effect: result.scan && typeof result.scan === "object" ? effect("PROCESS_SCAN", { scan: result.scan }) : effect("SCAN", {}) };
   };
   api.onSubmit = function onSubmit(value, result) {
     const workflow = api.sanitize(value);

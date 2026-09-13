@@ -62,10 +62,11 @@ const vm = require("vm");
   const selected = await request({ type: "UIP_AUTOMATION_SELECT_COURSE", course: { id: "9001", name: "forged", url: "https://moodle.uip.edu.pa/course/view.php?id=9001" } });
   assert.equal(selected.ok, true);
   assert.equal(updates.at(-1).url, "https://moodle.uip.edu.pa/course/view.php?id=9001");
-  messageListener({ type: "UIP_MOODLE_PAGE_READY", scan: { pageType: "COURSE", course: { id: "9001", name: "Curso", url: "https://moodle.uip.edu.pa/course/view.php?id=9001" }, modules: [{ id: "7001", name: "Semana 1", url: "https://moodle.uip.edu.pa/course/section.php?id=7001", available: true, locked: false }] } }, { tab: { id: 41 } }, () => {});
+  messageListener({ type: "UIP_MOODLE_PAGE_READY", scan: { pageType: "COURSE", course: { id: "9001", name: "Curso", url: "https://moodle.uip.edu.pa/course/view.php?id=9001" }, modules: [{ id: "7000", name: null, url: "https://moodle.uip.edu.pa/course/section.php?id=7000", available: true, locked: false }, { id: "7001", name: "Semana 1", url: "https://moodle.uip.edu.pa/course/section.php?id=7001", available: true, locked: false }] } }, { tab: { id: 41 } }, () => {});
   await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(stored["uip.automation.discovery.v1"].modules.find((item) => item.id === "7000").selectable, false);
 
-  const invalidStart = await request({ type: "UIP_AUTOMATION_START", moduleIds: ["9999"], preference: "Muy bueno" });
+  const invalidStart = await request({ type: "UIP_AUTOMATION_START", moduleIds: ["7000"], preference: "Muy bueno" });
   assert.equal(invalidStart.error, "invalid-configuration");
   const started = await request({ type: "UIP_AUTOMATION_START", moduleIds: ["7001"], preference: "Muy bueno" });
   assert.equal(started.ok, true);

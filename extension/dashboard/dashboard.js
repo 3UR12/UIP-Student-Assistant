@@ -14,6 +14,9 @@
   const setNotice = (value) => { ui.notice.textContent = value; };
   const escape = (value) => String(value || "").replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[character]);
   const selectedIds = () => Array.from(selectedModuleIds);
+  const phaseLabel = (phase) => ({ OPEN_SECTION: "Abriendo módulo", SCAN_SECTION: "Revisando módulo", OPEN_FEEDBACK: "Abriendo encuesta", SCAN_FEEDBACK: "Revisando encuesta", OPEN_FORM: "Abriendo formulario", PREFILL: "Aplicando valoración", VERIFY_FORM: "Verificando respuestas", SUBMIT: "Enviando Feedback", VERIFY_SUBMISSION: "Confirmando envío en Moodle", CONTINUE: "Continuando en Moodle", RECHECK_SECTION: "Verificando el módulo", NEXT_MODULE: "Preparando siguiente módulo" })[phase] || "Procesando recorrido";
+  const elapsed = (timestamp) => Math.max(0, Math.floor((Date.now() - Number(timestamp || Date.now())) / 1000));
+  const ago = (timestamp) => { const seconds = elapsed(timestamp); return seconds < 2 ? "ahora" : `hace ${seconds} s`; };
   const statusMessage = (code) => ({ "login-required": "Necesitas iniciar sesión en Moodle.", "worker-tab-closed": "La pestaña de Moodle se cerró.", "course-mismatch": "Moodle abrió otra materia.", "workflow-storage-unavailable": "No se pudo guardar el recorrido en esta sesión.", "worker-unavailable": "No se pudo abrir la pestaña Moodle.", "course-not-ready": "Selecciona una materia antes de continuar.", "course-not-observed": "La materia ya no está disponible; actualiza la lista.", "invalid-configuration": "Selecciona módulos disponibles y una valoración.", "run-already-active": "Ya hay un recorrido activo." })[code] || "No se pudo completar esta acción.";
   function show(view) { [ui.setup, ui.running, ui.paused, ui.done].forEach((element) => element.classList.toggle("hidden", element !== view)); }
   function renderCourses() {
@@ -24,17 +27,18 @@
     ui.course.value = selected;
   }
   function moduleReason(module) {
+    if (module.selectable !== true) return !module.name || /^(general|secci[oó]n general|general section)$/i.test(module.name) ? "Sección general no incluida." : "No disponible para procesamiento automático.";
     if (module.locked === true) return module.restrictionText || "No disponible en Moodle.";
     if (module.available === false) return module.restrictionText || "No disponible en Moodle.";
     if (module.available === null) return "Disponibilidad no verificada.";
     return "Disponible";
   }
   function renderModules() {
-    const modules = state.discovery.modules || [];
-    const available = modules.filter((module) => module.available === true && module.locked !== true);
+    const modules = (state.discovery.modules || []).filter((module) => module.name && !/^(general|secci[oó]n general|general section)$/i.test(module.name));
+    const available = modules.filter((module) => module.selectable === true);
     ui.fieldset.disabled = !modules.length;
     ui.modules.innerHTML = modules.map((module) => {
-      const selectable = module.available === true && module.locked !== true;
+      const selectable = module.selectable === true;
       const id = `module-${module.id}`;
       const checked = selectable && selectedModuleIds.has(String(module.id)) ? "checked" : "";
       return `<label class="module-row${selectable ? "" : " locked"}" for="${id}"><input id="${id}" type="checkbox" value="${escape(module.id)}" ${checked} ${selectable ? "" : "disabled"}><span><strong>${escape(module.name || "Módulo sin nombre")}</strong><span>${escape(moduleReason(module))}</span></span></label>`;
@@ -53,12 +57,20 @@
     const progress = workflow.progress || {}; const total = progress.total || 0; const reviewed = progress.reviewed || 0;
     ui.runState.textContent = workflow.status === "PAUSED" ? "Pausado" : "En curso";
     ui.progressBar.style.width = `${total ? Math.round((reviewed / total) * 100) : 0}%`;
-    ui.progressLabel.textContent = `Procesando ${Math.min(reviewed + 1, total)} de ${total} módulos · ${reviewed} revisados`;
+    const percent = total ? Math.round((reviewed / total) * 100) : 0;
+    ui.progressLabel.textContent = `Procesando ${Math.min(reviewed + 1, total)} de ${total} módulos · ${percent} % · ${reviewed} revisados`;
     ui.currentModule.textContent = workflow.currentModule && (workflow.currentModule.name || `Módulo #${workflow.currentModule.id}`) || "Finalizando recorrido…";
-    ui.currentAction.textContent = workflow.semantic || "Procesando…";
+    $("#current-feedback").textContent = workflow.currentFeedback && (workflow.currentFeedback.name || `Encuesta #${workflow.currentFeedback.id}`) || "Buscando una encuesta compatible…";
+    const stepSeconds = elapsed(workflow.stepStartedAt);
+    ui.currentAction.textContent = stepSeconds > 10 ? `Moodle está tardando más de lo habitual. ${phaseLabel(workflow.phase)}…` : workflow.semantic || phaseLabel(workflow.phase);
+    $("#moodle-connection").textContent = workflow.workerConnected ? "Conectado" : "Pestaña cerrada";
+    $("#last-activity").textContent = ago(workflow.lastActivityAt || workflow.updatedAt);
+    $("#step-elapsed").textContent = `${stepSeconds} s`;
     $("#metric-submitted").textContent = progress.submitted || 0; $("#metric-completed").textContent = progress.alreadyCompleted || 0; $("#metric-empty").textContent = progress.noFeedback || 0; $("#metric-manual").textContent = (progress.manualRequired || 0) + (progress.failed || 0);
     const problem = workflow.lastError && workflow.lastError.message;
     ui.problem.textContent = problem || ""; ui.problem.classList.toggle("hidden", !problem);
+    $("#activity-log").innerHTML = (workflow.activityLog || []).slice(-8).reverse().map((item) => `<li><time>${escape(ago(item.timestamp))}</time><span>${escape(item.label)}</span></li>`).join("") || "<li><span>Iniciando recorrido seguro…</span></li>";
+    $("#module-summary").innerHTML = (workflow.modules || []).map((item) => `<li class="module-status ${escape(item.status)}"><span>${item.status === "completed" ? "✓" : item.status === "running" ? "●" : item.status === "manual-required" || item.status === "failed" ? "!" : "○"}</span><strong>${escape(item.name || `Módulo #${item.id}`)}</strong><em>${escape(item.status === "running" ? "En proceso" : item.status === "manual-required" ? "Revisión necesaria" : item.status === "completed" ? "Completado" : item.status === "no-feedback" ? "Sin Feedback" : "Pendiente")}</em></li>`).join("");
   }
   function renderDone(workflow) {
     const progress = workflow.progress || {};
@@ -67,7 +79,7 @@
   }
   function render() {
     const workflow = state.workflow;
-    ui.technical.textContent = JSON.stringify({ status: workflow && workflow.status || "SETUP", phase: workflow && workflow.phase || "DISCOVERY", runId: workflow && workflow.runId || null, courseId: workflow && workflow.course && workflow.course.id || state.discovery.course && state.discovery.course.id || null, progress: workflow && workflow.progress || null, lastError: workflow && workflow.lastError || null }, null, 2);
+    ui.technical.textContent = JSON.stringify({ status: workflow && workflow.status || "SETUP", phase: workflow && workflow.phase || "DISCOVERY", transition: workflow && workflow.transition || null, runId: workflow && workflow.runId && workflow.runId.slice(0, 18) || null, courseId: workflow && workflow.course && workflow.course.id || state.discovery.course && state.discovery.course.id || null, workerConnected: workflow && workflow.workerConnected || false, lastEvent: workflow && workflow.lastSafeEvent || null, stepStartedAt: workflow && workflow.stepStartedAt || null, watchdogRetries: workflow && workflow.waitRetries || 0, progress: workflow && workflow.progress || null, lastError: workflow && workflow.lastError || null }, null, 2);
     if (!workflow || ["READY_TO_START", "CANCELLED"].includes(workflow.status)) { show(ui.setup); renderSetup(); return; }
     if (workflow.status === "DONE") { show(ui.done); renderDone(workflow); return; }
     if (["PAUSED", "LOGIN_REQUIRED", "ERROR"].includes(workflow.status)) {

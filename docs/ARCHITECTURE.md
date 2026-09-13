@@ -32,9 +32,13 @@ Fresh Moodle result scan proves completion, then the engine rechecks section
 
 No effect is authorized by stale storage alone. Every operation is guarded by the current `runId` and transition counter, one origin, expected course/module/Feedback IDs, and the current rendered Moodle DOM.
 
+## Event Pump
+
+Moodle can emit a content-script page-ready message, a tab-complete event, and an action response while another transition is still resolving. The background service therefore uses a serialized scan pump instead of dropping scans behind a boolean lock. It coalesces identical observations of the same worker tab, queues each distinct DOM state, and drains the queue after the current effect completes. A prefill response includes its fresh scan; that scan is immediately enqueued for form verification rather than waiting for another navigation or watchdog alarm. The watchdog remains a fallback for genuinely missing observations, never the normal happy-path driver.
+
 ## State And Recovery
 
-The workflow stores version, run ID, status/phase, worker tab ID, canonical course/module IDs and URLs, selected rating, module states, aggregate counts, a safe last event, retry count, and a sanitized error. It intentionally excludes DOM fragments, hidden fields, form values, submission bodies, tokens, cookies, diagnostics, and credentials.
+The workflow stores version, run ID, status/phase, worker tab ID, canonical course/module IDs and URLs, selected rating, module states, aggregate counts, safe last-event/retry metadata, a step timestamp, and a bounded activity log. Each log item contains only timestamp, safe action label, module/Feedback IDs, and observed names. It intentionally excludes DOM fragments, hidden fields, form values, submission bodies, tokens, cookies, diagnostics, and credentials.
 
 At most one watchdog retry re-scans a stalled step. A second timeout marks the current module manual-required and continues without repeating a verified submission. Closing the worker tab pauses safely. Reopening Moodle binds and persists the new tab ID before Resume is allowed. A login page moves the run to `LOGIN_REQUIRED`; the extension never attempts authentication and can resume only after the normal Moodle session is visible again. The service worker restores the watchdog with the persisted workflow and requests a fresh scan when it wakes during an active run.
 

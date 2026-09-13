@@ -24,11 +24,13 @@ function newWorkflow(selected = modules) {
 let workflow = newWorkflow();
 assert.equal(workflow.status, "READY_TO_START");
 assert.equal(workflow.progress.total, 2);
+assert.deepEqual(workflow.activityLog, []);
 assert.equal(engine.create({ course, modules: [{ id: "7", url: "https://other.example/course/section.php?id=7" }], preference: "Bueno" }), null);
 
 let transition = engine.start(workflow);
 assert.equal(transition.workflow.status, "RUNNING");
 assert.deepEqual(transition.effect, { type: "NAVIGATE", url: modules[0].url });
+assert.equal(transition.workflow.activityLog.at(-1).label, "Abriendo módulo…");
 workflow = transition.workflow;
 
 transition = engine.onScan(workflow, section("7001", [incomplete("8801")]));
@@ -91,6 +93,8 @@ assert.equal(secondTimeout.effect.type, "NAVIGATE");
 const stored = engine.sanitize({ ...engine.start(newWorkflow()).workflow, injectedHtml: "<form>secret</form>", course: { ...course, url: course.url, token: "secret" } });
 assert.equal(JSON.stringify(stored).includes("secret"), false);
 assert.equal(engine.sanitize({ version: 2, status: "RUNNING" }), null);
-assert.equal(engine.metadata(stored).modules, undefined);
+assert.deepEqual(engine.metadata(stored).modules.map((item) => item.id), ["7001", "7002"]);
+assert.equal(JSON.stringify(engine.metadata(stored).modules).includes("secret"), false);
+assert.ok(Array.isArray(engine.metadata(stored).activityLog));
 
 console.log("automation engine tests passed");

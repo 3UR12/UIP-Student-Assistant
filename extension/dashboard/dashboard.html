@@ -10,8 +10,9 @@
     <main class="shell">
       <header class="masthead">
         <p class="eyebrow">UIP Student Assistant</p>
-        <h1>Feedback sin recorridos manuales.</h1>
-        <p class="lede">Selecciona una materia, sus módulos y una valoración. El recorrido se ejecuta en Moodle mientras tú observas el progreso.</p>
+        <h1>Procesamiento automático de encuestas</h1>
+        <p class="lede">Selecciona una materia, los módulos que deseas procesar y una valoración. La extensión procesará automáticamente las encuestas compatibles de Moodle.</p>
+        <p class="disclaimer">Herramienta independiente para uso personal.</p>
       </header>
 
       <p id="notice" class="notice" role="status" aria-live="polite">Conectando con Moodle…</p>
@@ -65,8 +66,9 @@
         <div class="section-heading"><div><p class="kicker">Progreso</p><h2 id="progress-title">Procesando recorrido</h2></div><span id="run-state" class="state-pill">En curso</span></div>
         <div class="progress-track" aria-hidden="true"><span id="progress-bar"></span></div>
         <p id="progress-label" class="progress-label" aria-live="polite"></p>
-        <article class="current-card"><p class="kicker">Módulo actual</p><h3 id="current-module">Preparando Moodle…</h3><p id="current-action" aria-live="polite">Esperando la primera acción segura…</p></article>
+        <article class="current-card"><p class="kicker">Módulo actual</p><h3 id="current-module">Preparando Moodle…</h3><p class="feedback-current"><span>Encuesta:</span> <strong id="current-feedback">Buscando una encuesta compatible…</strong></p><p id="current-action" aria-live="polite">Esperando la primera acción segura…</p><dl class="run-meta"><div><dt>Moodle</dt><dd id="moodle-connection">Cargando</dd></div><div><dt>Última actividad</dt><dd id="last-activity">Ahora</dd></div><div><dt>Tiempo en este paso</dt><dd id="step-elapsed">0 s</dd></div></dl></article>
         <dl class="metrics"><div><dt>Enviados</dt><dd id="metric-submitted">0</dd></div><div><dt>Completados</dt><dd id="metric-completed">0</dd></div><div><dt>Sin Feedback</dt><dd id="metric-empty">0</dd></div><div><dt>Revisión manual</dt><dd id="metric-manual">0</dd></div></dl>
+        <section class="run-details" aria-label="Avance del recorrido"><div><h3>Actividad reciente</h3><ol id="activity-log" class="activity-log"></ol></div><div><h3>Módulos</h3><ul id="module-summary" class="module-summary"></ul></div></section>
         <p id="run-problem" class="problem hidden" role="alert"></p>
         <div class="button-row"><button id="pause-run" class="secondary" type="button">Pausar</button><button id="cancel-run" class="danger" type="button">Cancelar</button></div>
       </section>
