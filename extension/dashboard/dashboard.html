@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>UIP Student Assistant</title>
+    <link rel="stylesheet" href="dashboard.css">
+  </head>
+  <body>
+    <main class="shell">
+      <header class="masthead">
+        <p class="eyebrow">UIP Student Assistant</p>
+        <h1>Feedback sin recorridos manuales.</h1>
+        <p class="lede">Selecciona una materia, sus módulos y una valoración. El recorrido se ejecuta en Moodle mientras tú observas el progreso.</p>
+      </header>
+
+      <p id="notice" class="notice" role="status" aria-live="polite">Conectando con Moodle…</p>
+
+      <section id="setup-view" class="panel" aria-labelledby="setup-title">
+        <div class="section-heading">
+          <div><p class="kicker">Configuración</p><h2 id="setup-title">Prepara el recorrido</h2></div>
+          <button id="retry-courses" class="quiet" type="button">Actualizar materias</button>
+        </div>
+
+        <label class="field" for="course-select">
+          <span>Materia</span>
+          <select id="course-select" disabled><option value="">Cargando materias…</option></select>
+          <small id="course-help">La lista se obtiene desde tu Área personal de Moodle.</small>
+        </label>
+
+        <fieldset id="modules-fieldset" class="modules" disabled>
+          <div class="section-heading modules-heading">
+            <legend>Módulos</legend>
+            <div class="module-actions"><button id="select-all" class="link-button" type="button">Seleccionar disponibles</button><button id="clear-all" class="link-button" type="button">Deseleccionar</button></div>
+          </div>
+          <p id="module-count" class="helper">Selecciona una materia para ver sus módulos.</p>
+          <div id="module-list" class="module-list"></div>
+        </fieldset>
+
+        <label class="field" for="rating-select">
+          <span>Valoración</span>
+          <select id="rating-select">
+            <option value="">Selecciona una valoración</option>
+            <option value="Excelente">Excelente</option>
+            <option value="Muy Bueno">Muy Bueno</option>
+            <option value="Bueno">Bueno</option>
+            <option value="Satisfactorio">Satisfactorio</option>
+            <option value="Puede mejorar">Puede mejorar</option>
+          </select>
+          <small id="rating-help">La valoración se aplicará solo a radios compatibles y sin respuesta.</small>
+        </label>
+
+        <p id="setup-reason" class="helper">Selecciona una materia, uno o más módulos disponibles y una valoración.</p>
+        <button id="prepare-run" class="primary" type="button">Procesar 0 módulos</button>
+
+        <section id="confirm-run" class="confirmation hidden" aria-labelledby="confirm-title">
+          <h3 id="confirm-title">Confirmar recorrido</h3>
+          <p id="confirm-summary"></p>
+          <p>UIP Student Assistant procesará automáticamente los Feedback compatibles. Las respuestas ya existentes no se reemplazarán y los formularios no compatibles se dejarán para revisión manual.</p>
+          <div class="button-row"><button id="dismiss-confirm" class="secondary" type="button">Cancelar</button><button id="start-run" class="primary" type="button">Ejecutar recorrido</button></div>
+        </section>
+      </section>
+
+      <section id="running-view" class="panel hidden" aria-labelledby="progress-title">
+        <div class="section-heading"><div><p class="kicker">Progreso</p><h2 id="progress-title">Procesando recorrido</h2></div><span id="run-state" class="state-pill">En curso</span></div>
+        <div class="progress-track" aria-hidden="true"><span id="progress-bar"></span></div>
+        <p id="progress-label" class="progress-label" aria-live="polite"></p>
+        <article class="current-card"><p class="kicker">Módulo actual</p><h3 id="current-module">Preparando Moodle…</h3><p id="current-action" aria-live="polite">Esperando la primera acción segura…</p></article>
+        <dl class="metrics"><div><dt>Enviados</dt><dd id="metric-submitted">0</dd></div><div><dt>Completados</dt><dd id="metric-completed">0</dd></div><div><dt>Sin Feedback</dt><dd id="metric-empty">0</dd></div><div><dt>Revisión manual</dt><dd id="metric-manual">0</dd></div></dl>
+        <p id="run-problem" class="problem hidden" role="alert"></p>
+        <div class="button-row"><button id="pause-run" class="secondary" type="button">Pausar</button><button id="cancel-run" class="danger" type="button">Cancelar</button></div>
+      </section>
+
+      <section id="paused-view" class="panel hidden" aria-labelledby="paused-title">
+        <p class="kicker">Recorrido detenido</p><h2 id="paused-title">El recorrido está pausado</h2><p id="paused-reason"></p>
+        <div class="button-row"><button id="open-moodle" class="secondary" type="button">Abrir Moodle</button><button id="resume-run" class="primary" type="button">Reanudar</button><button id="restart-run" class="primary hidden" type="button">Configurar nuevo recorrido</button><button id="cancel-paused" class="danger" type="button">Cancelar</button></div>
+      </section>
+
+      <section id="done-view" class="panel hidden" aria-labelledby="done-title">
+        <p class="kicker">Resultado</p><h2 id="done-title">Recorrido completado</h2><p id="done-summary"></p>
+        <dl class="metrics"><div><dt>Enviados</dt><dd id="done-submitted">0</dd></div><div><dt>Ya completados</dt><dd id="done-completed">0</dd></div><div><dt>Sin Feedback</dt><dd id="done-empty">0</dd></div><div><dt>Requieren revisión</dt><dd id="done-manual">0</dd></div></dl>
+        <button id="new-run" class="primary" type="button">Nuevo recorrido</button>
+      </section>
+
+      <details id="technical-details" class="technical"><summary>Detalles técnicos</summary><pre id="technical-output"></pre></details>
+    </main>
+    <script src="dashboard.js"></script>
+  </body>
+</html>

@@ -1,28 +1,33 @@
-# Security and privacy
+# Security And Privacy
 
-UIP Student Assistant v0.4.0 is a local DOM scanner with limited Feedback radio-prefill, controlled submission, controlled Continue actions, and a controlled multi-module workflow.
+UIP Student Assistant v0.5.0 is a local, background-owned Moodle workflow. It can execute a single user-confirmed sequence of revalidated Feedback actions, but it does not authenticate, fabricate requests, or communicate with any system outside Moodle UIP.
 
-## What it does not do
+## What It Does Not Do
 
 - It never asks for, stores, reads, or transmits credentials.
-- It does not read cookies, tokens, `sesskey`, login form values, private messages, avatars, or full Moodle HTML.
-- It does not write text, fabricate requests, or modify Moodle outside the response form currently open. With an explicit popup action it may set only compatible unanswered radios. Only after a separate review and confirmation may it click one visible, enabled, uniquely identified Moodle `type=submit` control in that same revalidated form. A detected Moodle Continue anchor or GET form-submit control similarly needs its own explicit, revalidated action; hidden form fields are never inspected.
-- It does not use `fetch`, external services, AI APIs, analytics, telemetry, a backend, cloud storage, or a database.
-- It does not take screenshots or save scans locally.
+- It does not use cookies, tokens, `sesskey`, login form values, private messages, avatars, screenshots, or raw Moodle HTML.
+- It does not call `fetch`, XHR, remote APIs, AI services, analytics, telemetry, a backend, cloud storage, or a database.
+- It does not use `form.submit()`, `requestSubmit()`, arbitrary script injection, or arbitrary URLs.
+- It does not use `chrome.storage.local` or retain workflow state after the browser session ends.
 
-The browser's normal Moodle session renders the page. The extension inspects visible structural metadata only after the user presses the scan button. v0.4 may keep a single active workflow only in `chrome.storage.session`: version, active flag, course ID, selected rating, ordered `{id, url, name, status}` sections, and current section ID. It explicitly discards signatures, answers, hidden values, tokens, raw DOM, and every unlisted field before saving or using a stored value. It never uses `chrome.storage.local`.
+The browser's normal Moodle session renders the page. The content script reports scoped structural metadata when Moodle reaches a page; the background service decides the next allow-listed effect. Every form prefill, submit, or Continue click is re-inspected immediately before it is activated.
 
-## Manifest permissions
+## Persisted Data
+
+`chrome.storage.session` contains only sanitized workflow and discovery metadata: version, run ID, status/phase, worker tab ID, canonical Moodle IDs and URLs, truncated course/module names, selected rating, per-module outcome counts, retry state, and a safe error reason. It excludes DOM fragments, hidden inputs, response values, form signatures, tokens, cookies, credentials, message content, and diagnostics. Every workflow write is sanitized and verified by an immediate read-back.
+
+## Manifest Permissions
 
 | Permission | Reason |
 | --- | --- |
-| `https://moodle.uip.edu.pa/*` host permission | Limits the passive content bridge to Moodle UIP and lets it receive the requested scan message there. |
-| `storage` | Persists only the allow-listed active workflow in `chrome.storage.session` for the current browser session. |
+| `https://moodle.uip.edu.pa/*` host permission | Limits the passive Moodle content bridge and executor to UIP Moodle. |
+| `storage` | Keeps allow-listed discovery and workflow metadata only for the browser session. |
+| `alarms` | Wakes a bounded watchdog to re-scan one stalled run safely. |
 
-There are no permissions for `<all_urls>`, cookies, identity, webRequest, scripting, or `storage.local`. Clipboard writing uses the browser's popup user gesture when the user presses the copy button.
+There are no permissions for `<all_urls>`, cookies, identity, webRequest, scripting, downloads, notifications, or clipboard APIs.
 
-## Diagnostic export
+## Failure Handling
 
-`sanitizeDiagnostic` is an explicit allow-list step run before display and before copying. It permits only scanner metadata, safe Feedback submission readiness, result state, and structural navigation metadata; Moodle URLs are stripped to their `id` parameter. It excludes form signatures, hidden inputs, radio values, text-input values, session/cookie/token data, form actions, raw HTML, and page text. Email-shaped text is redacted defensively.
+Missing evidence does not grant permission to act. Wrong course, stale form, missing submit control, unsupported question, closed worker tab, unexpected route, timeout, or expired Moodle session results in pause, retry-once, or manual-required status. A submission is counted only after a later Moodle result scan verifies it, and a verified Feedback ID is excluded from future scheduling in that run.
 
 Do not add real Moodle captures, copied diagnostics, screenshots, or student data to the repository. `.gitignore` excludes the local directories intended for such material.

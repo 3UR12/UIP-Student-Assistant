@@ -1,15 +1,12 @@
 {
   "manifest_version": 3,
   "name": "UIP Student Assistant",
-  "version": "0.4.0",
-  "description": "Moodle UIP scanner and controlled multi-module Feedback workflow.",
-  "permissions": ["storage"],
+  "version": "0.5.0",
+  "description": "Automated Multi-Module Feedback Processor for Moodle UIP.",
+  "permissions": ["storage", "alarms"],
   "background": { "service_worker": "background/workflow-service.js" },
   "host_permissions": ["https://moodle.uip.edu.pa/*"],
-  "action": {
-    "default_title": "UIP Student Assistant",
-    "default_popup": "popup/popup.html"
-  },
+  "action": { "default_title": "UIP Student Assistant" },
   "content_scripts": [
     {
       "matches": ["https://moodle.uip.edu.pa/*"],

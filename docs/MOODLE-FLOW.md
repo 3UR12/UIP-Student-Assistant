@@ -1,13 +1,14 @@
-# Moodle UIP flow assumptions
+# Moodle UIP Flow Assumptions
 
-This scanner is designed around the normal, student-driven Moodle navigation flow:
+The v0.5 processor follows the normal Moodle route using one background-owned worker tab. The user signs in normally; the extension does not supply credentials or attempt a login.
 
-1. The student signs in normally and opens `https://moodle.uip.edu.pa/my/`.
-2. On **Área personal**, the scanner reads only course links and any canonical activity links currently present in the rendered overview. It never scans modules there, loads more cards, or changes filters.
-3. On `/course/view.php?id=…`, the scanner limits sections and activities to a Moodle course-content/main region and excludes navigation and sidebars.
-4. On `/course/section.php?id=…`, it identifies the current section from structural evidence and scans only that section. The page URL ID remains the canonical section ID; a separately exposed Moodle section number is kept only as `sectionNumber`.
-5. On `/mod/feedback/view.php`, it exposes one read-only Feedback activity and may detect a structural `complete.php` response URL.
-6. On `/mod/feedback/complete.php`, it inspects only the scoped Feedback form. The student may choose a rating and explicitly preselect compatible unanswered radios locally. Submission remains blocked unless every supported radio is answered, no manual control is present, and one visible enabled Moodle submit control is uniquely revalidated. A second explicit confirmation may activate only that real control.
-7. After Moodle navigates, the student reopens the popup and scans again. If Moodle removed the Feedback ID from `complete.php`, context is recovered only from a unique visible breadcrumb Feedback link. Completion is verified only from post-submit DOM evidence. Continue may be a real visible Moodle link or a visible GET form-submit control; it requires a separate explicit action and no multi-module loop is implemented.
+1. On `/my/`, the content script observes only the course cards currently rendered by Moodle. The background stores these observed course IDs, names, and canonical course URLs for dashboard selection.
+2. The background navigates the worker to an explicitly selected `/course/view.php?id=…`. The content script reports only modules rendered in Moodle's scoped course content. Availability is preserved as observed, not guessed.
+3. The engine navigates each selected `/course/section.php?id=…`, rechecks that exact section and scans its visible Feedback activities.
+4. A completed, unavailable, unknown, or unsupported Feedback becomes a safe recorded outcome. An incomplete, available Feedback may proceed to its observed `/mod/feedback/view.php?id=…` route.
+5. The Feedback view must expose either a verified submitted result or one structurally valid response URL. The response form must expose compatible question options for the selected exact rating.
+6. Before submit, the content script re-inspects the form signature, question count, supported controls, and uniquely visible enabled Moodle submit control. The background then waits for fresh Moodle post-submit evidence.
+7. Once a Moodle result verifies the submission, the engine records that Feedback and rechecks the original section. A Feedback already marked submitted in the run is never scheduled again.
+8. A visible Continue action is used only when Moodle exposes a unique validated link or GET form control. Otherwise the worker returns directly to the known section URL and rechecks there.
 
-Moodle themes, versions, availability rules, course layouts, and labels can vary. The scanner therefore treats URL paths and structural hints as evidence, not guarantees. It does not assume a fixed number or name of modules, that every course is rendered on the dashboard, or that a module has exactly one Feedback activity.
+Moodle themes, availability rules, course layouts, and Feedback wording can vary. The scanner treats route paths and DOM structure as evidence, not guarantees. If any expected evidence is absent or inconsistent, the workflow pauses or marks the smallest affected item manual-required; it never invents a route, a completion state, or a submission result.

@@ -1,37 +1,45 @@
-# Architecture
+# Architecture: v0.5 Automated Multi-Module Feedback Processor
 
 ## Boundaries
 
-`extension/core/` is the generic scanner. Its modules accept a DOM `Document`, use only standard browser DOM APIs, and publish a structured result through `UIPScannerCore`. They do not reference `chrome`, browser storage, network APIs, credentials, or UI elements.
+`extension/core/` is the browser-independent Moodle scanner. It accepts a DOM `Document`, returns structured observed state, and does not reference Chrome APIs, storage, network APIs, credentials, or UI.
 
-`extension/content/content.js` is a thin integration layer. It separates scan, prefill, submission inspection, real-submit activation, navigation inspection, Continue activation, and workflow-anchor inspection/activation into distinct messages. `extension/popup/` presents the result, preview, two-step submission confirmation, and copies only an allow-listed diagnostic. `background/workflow-service.js` is the sole Chrome-storage owner and uses `chrome.storage.session` for an allow-listed, ephemeral plan; the popup communicates with it only through workflow messages.
+`extension/content/content.js` is the Moodle executor. On every page it emits `UIP_MOODLE_PAGE_READY` with a structured scan and scanner version. It receives a narrow allow-list of actions: scan, inspect, prefill compatible radio questions, click one revalidated visible submit control, and activate a revalidated Continue action. It never owns the workflow or persistent state.
 
-`extension/core/feedback-form.js` owns Feedback `complete.php` detection, scoped question inspection, exact-label matching, preview generation, and local radio prefill. `submission.js` re-inspects the same form and permits only one visible, enabled, in-form `type=submit` control. `navigation.js` identifies safe Moodle Continue anchors or visible GET form-submit controls, plus structural previous/next section links. `workflow-navigation.js` is also pure: it validates a workflow plan, classifies only scanned Feedback evidence, and revalidates one visible real Moodle anchor for section, Feedback, response-form, or breadcrumb navigation. These modules have no Chrome APIs.
+`extension/background/automation-engine.js` is a pure state machine. It validates canonical Moodle URLs, creates safe workflow state, decides the next effect, and never touches Chrome or DOM APIs. It models discovery, ready, running, paused, login-required, done, cancelled, error, and per-module outcomes.
 
-The generic core is stored inside `extension/` rather than at repository root because Chromium's **Load unpacked** operation treats the selected `extension/` directory as the extension package and cannot load scripts from its parent directory. This retains the core/extension code boundary without copying source files or adding a bundler.
+`extension/background/workflow-service.js` is the Manifest V3 owner. It persists allow-listed state in `chrome.storage.session`, owns the Moodle worker tab, schedules the watchdog alarm, serializes DOM effects, and exposes the dashboard message API. A read-after-write check protects every workflow-state transition.
 
-## Scan flow
+`extension/dashboard/` is a persistent extension page opened from the action icon. It displays setup, one final confirmation, live progress, terminal summary, and pause/recovery controls. It never clicks Moodle controls or writes workflow state directly.
+
+## Execution Flow
 
 ```text
-User selects Scan in popup
+Dashboard configuration and one confirmation
         ↓
-Popup sends message to active tab
+Background validates selected observed modules and persists READY_TO_START
         ↓
-Passive content bridge calls core.scanDocument(document)
+Background starts RUNNING and navigates its Moodle worker tab
         ↓
-Core identifies page → extracts visible DOM metadata → records safe errors
+Content script emits page-ready scan
         ↓
-Popup renders a summary or sanitizes the allow-listed diagnostic for copying
+Pure engine validates current state and produces one next effect
+        ↓
+Background executes that effect through the content script or tab navigation
+        ↓
+Fresh Moodle result scan proves completion, then the engine rechecks section
 ```
 
-The popup runs one refresh pipeline with an epoch: it requests the current DOM scan and workflow state in parallel, waits for both with bounded timeouts, reconciles a matching SECTION before rendering, then paints once. An absent workflow is distinct from a storage error, and stale results cannot replace a later refresh. The service worker sanitizes every save, performs a read-after-write verification, and is the only code that touches session storage. Storage never authorizes navigation: a verified save is required before a section transition, and the current DOM must then provide one visible, unrestricted, same-origin anchor with the exact target ID. The content script reinspects it immediately before `click()`. On an already-open Feedback `complete.php` page, explicit prefill may set compatible unanswered radio controls and dispatch `input`/`change`. A separate review and confirmation sequence may invoke `click()` only on the revalidated real submit control. Neither path uses `submit`, `requestSubmit`, `fetch`, or manual navigation.
+No effect is authorized by stale storage alone. Every operation is guarded by the current `runId` and transition counter, one origin, expected course/module/Feedback IDs, and the current rendered Moodle DOM.
 
-## Detection approach
+## State And Recovery
 
-URLs identify core page types first. Stable Moodle-oriented anchors, data attributes, classes, and semantic containers provide secondary extraction. Activity type comes from the canonical `/mod/<type>/view.php?id=<cmid>` URL, so action endpoints such as `complete.php` and auxiliary plugin pages are not separate activities. Activity identity is `type:cmid`; a semantic Moodle activity name is preferred over action-link text.
+The workflow stores version, run ID, status/phase, worker tab ID, canonical course/module IDs and URLs, selected rating, module states, aggregate counts, a safe last event, retry count, and a sanitized error. It intentionally excludes DOM fragments, hidden fields, form values, submission bodies, tokens, cookies, diagnostics, and credentials.
 
-Scanning is page-aware. The dashboard never scans modules; course scans use the outer main region before a nested course-content region; section scans use the current Moodle section and fall back to that outer main region when Moodle omits a self wrapper; and a Feedback page produces one read-only `feedbackPage` context, including an optional detected response URL. Navigation, drawers, sidebars, breadcrumbs, footers, and auxiliary blocks are excluded. When a safe content scope cannot be found, the scanner returns an empty relevant collection rather than scanning the full document.
+At most one watchdog retry re-scans a stalled step. A second timeout marks the current module manual-required and continues without repeating a verified submission. Closing the worker tab pauses safely. A login page moves the run to `LOGIN_REQUIRED`; the extension never attempts authentication and can resume only after the normal Moodle session is visible again. The service worker restores the watchdog and requests a fresh scan when it wakes during an active run.
 
-Each scan carries the content-script scanner version. The popup rejects a result from a different scanner version and asks the user to reload the Moodle tab, preventing a stale injected script from being presented as a valid scan.
+## API And Click Audit
 
-Course labels are kept as the observed `rawName`; `displayName` remains `null` unless a future version has reliable display-name evidence. No UIP-specific course-name parsing is performed.
+The extension uses only `chrome.runtime`, `chrome.tabs`, `chrome.alarms`, and `chrome.storage.session`. It has no `fetch`, XHR, backend, remote endpoint, cookie API, or local persistence.
+
+The only real Moodle clicks are inside `content.js` after a fresh exact match: compatible radio-option prefill dispatches `input` and `change`; a visible enabled submit control uses `click()`; a validated Continue anchor or GET form control uses `click()`. The extension does not invoke `form.submit()`, `requestSubmit()`, synthetic credential input, or arbitrary script injection.

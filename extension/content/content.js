@@ -1,4 +1,4 @@
-/* Passive bridge: scanning happens only after an explicit popup request. */
+/* Moodle executor: the background owns workflow decisions; this script owns DOM primitives. */
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (!message) return undefined;
   if (message.type === "UIP_SCAN_CURRENT_DOCUMENT") {
@@ -113,3 +113,16 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
   return false;
 });
+
+/* A page-ready signal lets the persistent engine continue after Moodle navigation. */
+try {
+  const readyScan = globalThis.UIPScannerCore.scanDocument(document);
+  chrome.runtime.sendMessage({
+    type: "UIP_MOODLE_PAGE_READY",
+    scannerVersion: readyScan.scannerVersion,
+    pageType: readyScan.pageType,
+    scan: readyScan
+  }).catch(() => undefined);
+} catch (_) {
+  chrome.runtime.sendMessage({ type: "UIP_MOODLE_PAGE_READY", scannerVersion: globalThis.UIPScannerCore.VERSION, pageType: "OTHER" }).catch(() => undefined);
+}

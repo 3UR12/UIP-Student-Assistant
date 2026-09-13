@@ -11,7 +11,7 @@ vm.createContext(context);
 });
 
 const core = context.UIPScannerCore;
-assert.equal(core.VERSION, "0.4.0");
+assert.equal(core.VERSION, "0.5.0");
 assert.equal(core.detectPageType({ location: { pathname: "/my/" } }), "AREA_PERSONAL");
 assert.equal(core.detectPageType({ location: { pathname: "/course/view.php" } }), "COURSE");
 assert.equal(core.detectPageType({ location: { pathname: "/course/section.php" } }), "SECTION");
@@ -724,73 +724,9 @@ core.inspectWorkflowNavigation = originalWorkflowInspect;
 const persisted = core.sanitizeWorkflow({ ...workflowPlan, sections: [{ ...workflowPlan.sections[0], formSignature: "must-not-persist", token: "must-not-persist" }], extra: "must-not-persist" });
 assert.equal(JSON.stringify(persisted).includes("must-not-persist"), false);
 assert.equal(core.sanitizeWorkflow({ version: 1, active: true, courseId: "9001", preference: "Bueno", sections: [{ id: "7001", url: "https://moodle.uip.edu.pa/course/section.php?id=7001", status: "not-a-status" }], currentSectionId: null }), null);
-assert.equal(fs.existsSync("extension/popup/workflow-session.js"), false);
+assert.equal(fs.existsSync("extension/popup") ? fs.readdirSync("extension/popup").length : 0, 0);
 
-// v0.4.0 hydration decisions are pure, deterministic, and ignore stale loads.
-const uiContext = { globalThis: {} };
-uiContext.globalThis = uiContext;
-vm.createContext(uiContext);
-vm.runInContext(fs.readFileSync("extension/popup/workflow-ui-state.js", "utf8"), uiContext, { filename: "workflow-ui-state.js" });
-const workflowUi = uiContext.UIPWorkflowUiState;
-const loadingState = { epoch: 1, phase: "loading", scan: null, workflow: null, error: null };
-assert.equal(workflowUi.canCopy(loadingState), false);
-assert.equal(workflowUi.canShowPlanner({ pageType: "COURSE", course: { id: "9001" } }, loadingState), false);
-const activeState = { epoch: 1, phase: "ready", scan: null, workflow: workflowPlan, error: null };
-assert.equal(workflowUi.canCopy(activeState), true);
-assert.equal(activeState.workflow.courseId, "9001");
-assert.equal(workflowUi.diagnosticState(activeState, { active: true, courseId: "9001" }).workflow.courseId, "9001");
-const nullState = { epoch: 2, phase: "ready", scan: null, workflow: null, error: null };
-assert.equal(workflowUi.canShowPlanner({ pageType: "COURSE", course: { id: "9001" } }, nullState), true);
-const failedState = { epoch: 3, phase: "error", scan: null, workflow: null, error: "workflow-storage-unavailable" };
-assert.equal(failedState.phase, "error");
-assert.equal(workflowUi.diagnosticState(failedState, null).workflowState, "unavailable");
-assert.equal(workflowUi.canCopy(failedState), false);
-assert.equal(workflowUi.canShowPlanner({ pageType: "COURSE", course: { id: "9001" } }, failedState), false);
-assert.equal(workflowUi.isCurrentEpoch({ epoch: 7 }, 6), false);
-assert.equal(workflowUi.isCurrentEpoch({ epoch: 7 }, 7), true);
-assert.equal(workflowUi.canProceedAfterSave({ ok: false, workflow: null }), false);
-assert.equal(workflowUi.canProceedAfterSave({ ok: true, workflow: workflowPlan }), true);
-assert.equal(workflowUi.feedbackViewAction({ pageType: "FEEDBACK", feedbackForm: { detected: true }, feedbackPage: { id: "8801", canRespond: true } }), "form-open");
-assert.equal(workflowUi.feedbackViewAction({ pageType: "FEEDBACK", feedbackForm: null, feedbackPage: { id: "8801", canRespond: true } }), "open-form");
-
-(async () => {
-  const storageCalls = [];
-  const stored = {};
-  let listener = null;
-  let mismatch = false;
-  let shouldFail = false;
-  const backgroundContext = {
-    globalThis: {}, URL, Set,
-    chrome: {
-      runtime: { onMessage: { addListener(value) { listener = value; } } },
-      storage: { session: {
-        async get(key) { storageCalls.push({ get: key }); if (shouldFail) throw new Error("synthetic"); return mismatch ? { [key]: { ...workflowPlan, preference: "changed" } } : { [key]: stored[key] }; },
-        async set(value) { storageCalls.push({ set: value }); if (shouldFail) throw new Error("synthetic"); Object.assign(stored, value); },
-        async remove(key) { storageCalls.push({ remove: key }); if (shouldFail) throw new Error("synthetic"); delete stored[key]; }
-      } }
-    }
-  };
-  backgroundContext.globalThis = backgroundContext;
-  backgroundContext.importScripts = (path) => vm.runInContext(fs.readFileSync(`extension/background/${path}`, "utf8"), backgroundContext, { filename: path });
-  vm.createContext(backgroundContext);
-  vm.runInContext(fs.readFileSync("extension/background/workflow-service.js", "utf8"), backgroundContext, { filename: "workflow-service.js" });
-  const request = (message) => new Promise((resolve) => listener(message, {}, resolve));
-  assert.deepEqual(await request({ type: "UIP_WORKFLOW_LOAD" }), { ok: true, workflow: null });
-  const saved = await request({ type: "UIP_WORKFLOW_SAVE", workflow: { ...workflowPlan, extra: "discard" } });
-  assert.equal(saved.ok, true);
-  assert.deepEqual(Object.keys(storageCalls.find((item) => item.set).set), ["uip.workflow.v1"]);
-  assert.equal(storageCalls.some((item) => item.get === "uip.workflow.v1"), true);
-  assert.equal(JSON.stringify(saved.workflow).includes("discard"), false);
-  assert.deepEqual((await request({ type: "UIP_WORKFLOW_LOAD" })).workflow, saved.workflow);
-  mismatch = true;
-  assert.equal((await request({ type: "UIP_WORKFLOW_SAVE", workflow: workflowPlan })).error, "workflow-save-verification-failed");
-  mismatch = false;
-  const cleared = await request({ type: "UIP_WORKFLOW_CLEAR" });
-  assert.equal(cleared.ok, true);
-  assert.equal(storageCalls.some((item) => item.remove === "uip.workflow.v1"), true);
-  shouldFail = true;
-  assert.equal((await request({ type: "UIP_WORKFLOW_LOAD" })).ok, false);
-  assert.equal((await request({ type: "UIP_WORKFLOW_SAVE", workflow: workflowPlan })).ok, false);
-  assert.equal((await request({ type: "UIP_WORKFLOW_CLEAR" })).ok, false);
-  console.log("core smoke tests passed");
-})().catch((error) => { console.error(error); process.exitCode = 1; });
+// The v0.4 popup hydration and manual workflow-storage tests were deliberately
+// retired. v0.5 has no popup control surface and uses a new persisted engine;
+// its lifecycle coverage lives in automation-engine.test.js.
+console.log("core smoke tests passed");

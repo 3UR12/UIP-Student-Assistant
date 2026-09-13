@@ -1,42 +1,60 @@
 # UIP Student Assistant
 
-UIP Student Assistant is a small browser extension for inspecting the Moodle UIP page the student already has open. Version 0.4.0 adds a Controlled Multi-Module Processor: it lets the student create an explicit, ordered plan from real available sections and revisit each section before continuing.
+## v0.5.0 Automated Multi-Module Feedback Processor
 
-It does not log anyone in, fabricate requests, use a backend, or send data anywhere except through Moodle's real visible submit control after two explicit popup actions. It never auto-submits or auto-navigates; every module, Feedback, response form, submit, and Continue action needs an explicit popup action and a fresh DOM revalidation.
+UIP Student Assistant is a Manifest V3 extension for the Moodle UIP site. It discovers the courses and modules that Moodle visibly renders, lets the student choose a course, modules, and one exact rating, then executes the confirmed Feedback route in a dedicated Moodle worker tab.
 
-## Current scope
+The v0.5 dashboard is a persistent extension page, not a popup. It is opened from the extension icon and remains useful while Moodle navigates. The background service worker owns the machine state, execution order, pause/resume/cancel controls, session recovery and watchdog. The content script only reports the current rendered Moodle state and executes narrowly scoped, revalidated DOM actions requested by the background owner.
 
-The extension works on `https://moodle.uip.edu.pa/*` and scans only the active page when the user selects **Escanear página actual** in the popup. On a course, the user may select only structurally valid, confirmed-available sections and choose a session rating. The ordered intent is stored only for the browser session, then each course-to-section, section-to-Feedback, and Feedback-to-form navigation is found again as one visible real Moodle anchor before it is clicked. A section is classified only after its real DOM has been scanned: `no-feedback`, `completed`, `needs-review`, `blocked`, or `unknown`. Post-submit completion is reported only after a later scan observes evidence.
+## What It Does
 
-## Development installation
+- Discovers real Moodle courses and modules after login.
+- Allows only observed, available modules to be selected.
+- Requires one final confirmation showing the course, module count, and exact rating.
+- Traverses the configured modules automatically and records Feedback as submitted, completed, unavailable, blocked, manual-required, or failed.
+- Rechecks Moodle after submission before treating a Feedback as submitted.
+- Pauses safely, resumes after a normal Moodle login, and never repeats a Feedback already verified in the current run.
 
-1. Clone this repository and switch to `feature/v0.1-scanner` (or the branch under review).
-2. Open `edge://extensions` (or `chrome://extensions`).
-3. Enable **Developer mode**.
-4. Choose **Load unpacked** and select the [`extension`](extension) folder.
-5. Sign in to Moodle UIP normally, open a Moodle page, open the extension popup, and select **Escanear página actual**.
+## Safety Boundary
 
-See [docs/TESTING.md](docs/TESTING.md) for the complete manual test procedure.
+The extension never handles usernames, passwords, cookies, session keys, hidden inputs, raw HTML, arbitrary URLs, or custom network requests. It uses the browser's existing Moodle session and only sends messages to `https://moodle.uip.edu.pa/*`. Workflow metadata is stored only in `chrome.storage.session` and is allow-listed before every write. It does not use `storage.local`, analytics, remote APIs, a backend, `fetch`, `submit()`, or `requestSubmit()`.
 
-## Privacy
+An action is executed only after fresh page-state verification by the content script. If Moodle is not on the expected course, module, Feedback, or form, the run pauses or routes the item to manual review instead of guessing.
 
-The scanner uses the browser's existing Moodle session only to read the rendered DOM. The Feedback Assistant reads only scoped radio option labels/values needed for local preselection; it does not access passwords, cookies, tokens, hidden fields, text responses, private messages, or full page HTML. An active workflow persists only its safe plan metadata and selected rating in `chrome.storage.session`; it never uses `storage.local`. Diagnostic JSON is explicitly sanitized before it can be copied. There are no analytics, external requests, databases, or servers. Details are in [docs/SECURITY.md](docs/SECURITY.md).
+## Install For Development
 
-## Architecture
+1. Open `edge://extensions` or `chrome://extensions`.
+2. Turn on **Developer mode**.
+3. Select **Load unpacked** and choose the repository's [`extension`](extension) directory.
+4. Sign into Moodle UIP normally.
+5. Select the extension icon to open the dashboard, then choose **Actualizar materias** if the course list is not visible yet.
 
-The browser-independent scanner lives in [`extension/core`](extension/core); it receives a `Document` and returns a structured result. [`extension`](extension) contains the Manifest V3 integration, passive content script, and popup. This separation keeps the Moodle analysis portable for a future Android implementation.
+The dashboard can be closed during a run. The background workflow remains active for the browser session and the extension icon can reopen its current state.
 
-Further design notes: [architecture](docs/ARCHITECTURE.md) and [Moodle flow](docs/MOODLE-FLOW.md).
+## Verification
 
-## Roadmap
+Run the dependency-free checks before loading an updated build:
 
-- v0.1 — Moodle Scanner
-- v0.2 — Feedback Assistant
-- v0.3 — Controlled Feedback Navigator
-- v0.4 — Controlled Multi-Module Processor
-- v0.5 — Android Prototype
+```powershell
+Get-ChildItem extension -Recurse -Filter *.js | ForEach-Object { node --check $_.FullName }
+node -e "JSON.parse(require('fs').readFileSync('extension/manifest.json')); console.log('manifest JSON valid')"
+node tests/core-smoke.test.js
+node tests/automation-engine.test.js
+node tests/workflow-service.test.js
+node tests/dashboard-ux.test.js
+node tests/automation-e2e.test.js --repeat=20
+node tests/lifecycle-idempotency.test.js
+```
 
-The roadmap is directional; later versions are not implemented or promised by this repository.
+Read the [manual runbook](docs/TESTING.md), [architecture](docs/ARCHITECTURE.md), [Moodle workflow](docs/MOODLE-FLOW.md), and [security model](docs/SECURITY.md) before an authenticated validation.
+
+## Version History
+
+- v0.1: Moodle Scanner
+- v0.2: Feedback Assistant
+- v0.3: Controlled Feedback Navigator
+- v0.4: Controlled Multi-Module Processor
+- v0.5: Automated Multi-Module Feedback Processor
 
 ## License
 
