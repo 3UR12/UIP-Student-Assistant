@@ -6,7 +6,7 @@ const vm = require("vm");
 const context = { globalThis: {}, URL, Set, Event };
 context.globalThis = context;
 vm.createContext(context);
-["state.js", "moodle.js", "courses.js", "modules.js", "activities.js", "feedback.js", "feedback-form.js", "submission.js", "navigation.js", "workflow-navigation.js", "workflow-state.js", "sanitize.js"].forEach((file) => {
+["state.js", "moodle.js", "courses.js", "modules.js", "activities.js", "feedback.js", "feedback-form.js", "submission.js", "navigation.js", "notices.js", "workflow-navigation.js", "workflow-state.js", "sanitize.js"].forEach((file) => {
   vm.runInContext(fs.readFileSync(`extension/core/${file}`, "utf8"), context, { filename: file });
 });
 
@@ -35,6 +35,8 @@ assert.equal(core.restriction(restrictedSection, { navigable: true }).available,
 const visibleLink = { getAttribute: () => null, style: {}, parentElement: null };
 assert.equal(core.isDomVisible(visibleLink), true);
 assert.equal(core.isDomVisible(null), false);
+const unavailableNotice = { className: "alert alert-warning", textContent: "Módulo#2 no disponible", getAttribute: () => null, style: {}, parentElement: null };
+assert.deepEqual(core.scanPageNotices({ querySelectorAll: () => [unavailableNotice] }, null, []), [{ type: "warning", text: "Módulo#2 no disponible" }]);
 const hiddenParent = { hidden: true, getAttribute: () => null, style: {}, parentElement: null };
 assert.equal(core.isDomVisible({ getAttribute: () => null, style: {}, parentElement: hiddenParent }), false);
 const dashboardBlockChild = {

@@ -62,12 +62,12 @@ assert.equal(transition.workflow.status, "DONE");
 assert.equal(transition.workflow.progress.submitted, 1);
 
 // A watchdog is bounded in every waiting phase and does not leave a loading state forever.
-["OPEN_SECTION", "OPEN_FEEDBACK", "OPEN_FORM", "VERIFY_FORM", "VERIFY_SUBMISSION", "CONTINUE"].forEach((phase) => {
+["OPEN_SECTION", "WAIT_SECTION", "OPEN_FEEDBACK", "WAIT_FEEDBACK", "OPEN_FORM", "WAIT_FORM", "VERIFY_FORM", "VERIFY_SUBMISSION", "CONTINUE"].forEach((phase) => {
   const base = engine.start(configured()).workflow;
   const waiting = restore({ ...base, phase, semantic: "Esperando Moodle…" });
   const first = engine.timeout(waiting);
   const second = engine.timeout(first.workflow);
-  assert.equal(first.effect.type, "SCAN");
+  assert.equal(first.effect.type, ["OPEN_SECTION", "WAIT_SECTION"].includes(phase) ? "NAVIGATE" : "SCAN");
   assert.ok(["DONE", "RUNNING"].includes(second.workflow.status));
   assert.equal(second.workflow.waitRetries, 0);
   assert.notEqual(second.workflow.phase, phase, `watchdog remained in ${phase}`);

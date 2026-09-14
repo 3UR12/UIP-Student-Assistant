@@ -54,8 +54,9 @@
   core.scanDocument = function scanDocument(document) {
     const errors = [];
     const pageType = core.detectPageType(document);
-    let courses = []; let modules = []; let activities = []; let feedback = []; let currentSection = null; let feedbackPage = null; let feedbackForm = null; let feedbackSubmission = null; let feedbackResult = null; let sectionNavigation = null;
+    let courses = []; let modules = []; let activities = []; let feedback = []; let currentSection = null; let feedbackPage = null; let feedbackForm = null; let feedbackSubmission = null; let feedbackResult = null; let sectionNavigation = null; let pageNotices = [];
     const mainScope = core.findMainContent(document);
+    try { pageNotices = core.scanPageNotices ? core.scanPageNotices(document, mainScope, errors) : []; } catch (_) { core.captureError(errors, "page-notices"); }
     try {
       if (pageType === "AREA_PERSONAL") courses = core.scanCourses(core.findDashboardScope(document), document, errors);
     } catch (_) { core.captureError(errors, "courses"); }
@@ -97,7 +98,7 @@
     return {
       scannerVersion: core.VERSION, pageType,
       sessionApparentlyNotStarted: core.isApparentlyLoggedOut(document),
-      course: core.currentCourse(document, pageType), currentSection, feedbackPage, feedbackForm, feedbackSubmission, feedbackResult, sectionNavigation, courses, modules, activities, feedback,
+      course: core.currentCourse(document, pageType), currentSection, feedbackPage, feedbackForm, feedbackSubmission, feedbackResult, sectionNavigation, pageNotices, courses, modules, activities, feedback,
       summary: {
         courses: courses.length, modules: modules.length, activities: activities.length, feedback: feedback.length,
         feedbackCompleted: completedFeedback,

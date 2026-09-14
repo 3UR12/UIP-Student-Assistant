@@ -11,7 +11,6 @@ let dashboardTabId = null;
 let scanPumpRunning = false;
 const pendingScans = [];
 const activeScanKeys = new Map();
-const processedScanKeys = new Map();
 
 const engine = globalThis.UIPAutomationEngine;
 const isMoodleUrl = (value) => {
@@ -164,9 +163,10 @@ async function enqueueScan(tabId, scan) {
     readyToSubmit: scan.feedbackSubmission && scan.feedbackSubmission.readyToSubmit === true,
     resultId: scan.feedbackResult && scan.feedbackResult.feedbackId || null,
     submissionVerified: scan.feedbackResult && scan.feedbackResult.submissionVerified === true,
-    feedback: Array.isArray(scan.feedback) ? scan.feedback.map((item) => [item && item.id || null, item && item.completionState || null, item && item.available === true]).slice(0, 50) : []
+    feedback: Array.isArray(scan.feedback) ? scan.feedback.map((item) => [item && item.id || null, item && item.completionState || null, item && item.available === true]).slice(0, 50) : [],
+    notices: Array.isArray(scan.pageNotices) ? scan.pageNotices.map((item) => [item && item.type || null, item && item.text || null]).slice(0, 20) : []
   });
-  if (activeScanKeys.get(tabId) === key || processedScanKeys.get(tabId) === key) return;
+  if (activeScanKeys.get(tabId) === key) return;
   if (pendingScans.some((item) => item.tabId === tabId && item.key === key)) return;
   // Identical observations coalesce; every distinct DOM state stays queued.
   pendingScans.push({ tabId, scan, key });
@@ -178,7 +178,6 @@ async function enqueueScan(tabId, scan) {
       activeScanKeys.set(next.tabId, next.key);
       await processScan(next.tabId, next.scan);
       activeScanKeys.delete(next.tabId);
-      processedScanKeys.set(next.tabId, next.key);
     }
   } finally {
     scanPumpRunning = false;

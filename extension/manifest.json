@@ -20,6 +20,7 @@
         "core/feedback-form.js",
         "core/submission.js",
         "core/navigation.js",
+        "core/notices.js",
         "core/workflow-navigation.js",
         "core/workflow-state.js",
         "core/sanitize.js",

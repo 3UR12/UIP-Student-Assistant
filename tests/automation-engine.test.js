@@ -33,6 +33,11 @@ assert.deepEqual(transition.effect, { type: "NAVIGATE", url: modules[0].url });
 assert.equal(transition.workflow.activityLog.at(-1).label, "Abriendo módulo…");
 workflow = transition.workflow;
 
+// A warning for a different selected module is not enough to skip this one.
+const unrelatedNotice = engine.onScan(workflow, { pageType: "COURSE", course: { id: "9001" }, pageNotices: [{ type: "warning", text: "Semana 2 no disponible" }] });
+assert.equal(unrelatedNotice.workflow.modules[0].status, "running");
+assert.equal(unrelatedNotice.effect, null);
+
 transition = engine.onScan(workflow, section("7001", [incomplete("8801")]));
 assert.equal(transition.workflow.phase, "OPEN_FEEDBACK");
 assert.equal(transition.effect.url, "https://moodle.uip.edu.pa/mod/feedback/view.php?id=8801");
@@ -85,7 +90,8 @@ const cancelled = engine.cancel(paused.workflow);
 assert.equal(cancelled.status, "CANCELLED");
 
 const firstTimeout = engine.timeout(engine.start(newWorkflow()).workflow);
-assert.equal(firstTimeout.effect.type, "SCAN");
+assert.equal(firstTimeout.effect.type, "NAVIGATE");
+assert.equal(firstTimeout.effect.url, modules[0].url);
 const secondTimeout = engine.timeout(firstTimeout.workflow);
 assert.equal(secondTimeout.workflow.modules[0].status, "manual-required");
 assert.equal(secondTimeout.effect.type, "NAVIGATE");

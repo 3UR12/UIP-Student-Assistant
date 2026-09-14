@@ -4,8 +4,8 @@
   const ORIGIN = "https://moodle.uip.edu.pa";
   const STATUSES = new Set(["IDLE", "DISCOVERING_COURSES", "DISCOVERING_MODULES", "READY_TO_START", "RUNNING", "PAUSED", "LOGIN_REQUIRED", "DONE", "CANCELLED", "ERROR"]);
   const PHASES = new Set([
-    "IDLE", "DISCOVER_COURSES", "DISCOVER_MODULES", "READY", "OPEN_SECTION", "SCAN_SECTION",
-    "OPEN_FEEDBACK", "SCAN_FEEDBACK", "OPEN_FORM", "PREFILL", "VERIFY_FORM", "SUBMIT",
+    "IDLE", "DISCOVER_COURSES", "DISCOVER_MODULES", "READY", "OPEN_SECTION", "WAIT_SECTION", "SCAN_SECTION",
+    "OPEN_FEEDBACK", "WAIT_FEEDBACK", "SCAN_FEEDBACK", "OPEN_FORM", "WAIT_FORM", "PREFILL", "VERIFY_FORM", "SUBMIT",
     "VERIFY_SUBMISSION", "CONTINUE", "RECHECK_SECTION", "NEXT_MODULE", "PAUSED", "DONE", "CANCELLED", "LOGIN_REQUIRED", "ERROR"
   ]);
   const MODULE_STATUSES = new Set(["pending", "running", "completed", "no-feedback", "blocked", "manual-required", "failed", "cancelled"]);
@@ -88,6 +88,19 @@
     if (!validId(id) || !url) return null;
     return { id, url, name: text(feedback.name), completionState: ["completed", "incomplete", "unknown"].includes(feedback.completionState) ? feedback.completionState : "unknown", available: feedback.available === true ? true : feedback.available === false ? false : null };
   }
+  function hasBlockedNotice(scan, module) {
+    if (!scan || scan.pageType !== "COURSE" || !scan.course || !Array.isArray(scan.pageNotices)) return false;
+    const blocked = /\b(no disponible|not available|restringido|restricted)\b/i;
+    const moduleName = text(module && module.name, 120);
+    return scan.pageNotices.some((notice) => {
+      const value = text(notice && notice.text, 260);
+      if (!value || !blocked.test(value)) return false;
+      // A generic course warning must not block whichever module happens to be current.
+      const compactNotice = value.toLocaleLowerCase().replace(/\s+/g, "");
+      const compactModule = moduleName && moduleName.toLocaleLowerCase().replace(/\s+/g, "");
+      return !compactModule || compactNotice.includes(compactModule);
+    });
+  }
   function effect(type, payload) { return { type, ...payload }; }
   function wait(workflow, phase, semantic, extra) {
     return { workflow: touch(workflow, { status: "RUNNING", phase, semantic, ...extra }), effect: null };
@@ -97,10 +110,15 @@
     next = touch(next, { phase: "NEXT_MODULE", semantic: "Pasando al siguiente módulo…", currentFeedbackId: null, lastSafeEvent: reason, lastError: status === "failed" || status === "manual-required" ? message(reason, "Este módulo requiere revisión manual.") : null });
     return advanceModule(next);
   }
+  function blockModule(workflow, module) {
+    let next = updateModule(workflow, module.id, { status: "blocked" });
+    next = touch(next, { phase: "NEXT_MODULE", semantic: `${module.name || `Módulo #${module.id}`} no está disponible en Moodle. Se omitirá.`, currentFeedbackId: null, lastSafeEvent: "module-blocked", lastError: null });
+    return advanceModule(next);
+  }
   function advanceModule(workflow) {
     const nextIndex = workflow.currentModuleIndex + 1;
     if (nextIndex >= workflow.modules.length) return { workflow: touch(workflow, { status: "DONE", phase: "DONE", semantic: "Recorrido completado", currentModuleIndex: nextIndex, currentFeedbackId: null, lastSafeEvent: "completed" }), effect: null };
-    return { workflow: touch(workflow, { currentModuleIndex: nextIndex, phase: "OPEN_SECTION", semantic: "Abriendo módulo…", currentFeedbackId: null, lastSafeEvent: "next-module" }), effect: effect("NAVIGATE", { url: workflow.modules[nextIndex].url }) };
+    return { workflow: touch(workflow, { currentModuleIndex: nextIndex, phase: "WAIT_SECTION", semantic: "Abriendo módulo…", currentFeedbackId: null, waitRetries: 0, lastSafeEvent: "next-module" }), effect: effect("NAVIGATE", { url: workflow.modules[nextIndex].url }) };
   }
 
   api.create = function create(configuration) {
@@ -167,7 +185,7 @@
     const workflow = api.sanitize(value);
     if (!workflow || workflow.status !== "READY_TO_START") return { workflow, effect: null };
     const first = currentModule(workflow);
-    const next = touch(workflow, { status: "RUNNING", phase: "OPEN_SECTION", semantic: "Abriendo módulo…", lastSafeEvent: "start" });
+    const next = touch(workflow, { status: "RUNNING", phase: "WAIT_SECTION", semantic: "Abriendo módulo…", waitRetries: 0, lastSafeEvent: "start" });
     return { workflow: updateModule(next, first.id, { status: "running" }), effect: effect("NAVIGATE", { url: first.url }) };
   };
   api.pause = function pause(value) {
@@ -179,9 +197,9 @@
     const workflow = api.sanitize(value);
     if (!workflow || !["PAUSED", "LOGIN_REQUIRED"].includes(workflow.status)) return { workflow, effect: null };
     if (!Number.isInteger(workflow.workerTabId) || workflow.workerTabId <= 0) return { workflow, effect: null };
-    const phase = workflow.phase === "LOGIN_REQUIRED" ? "OPEN_SECTION" : workflow.phase === "PAUSED" ? "OPEN_SECTION" : workflow.phase;
+    const phase = workflow.phase === "LOGIN_REQUIRED" || workflow.phase === "PAUSED" ? "WAIT_SECTION" : workflow.phase;
     const next = touch(workflow, { status: "RUNNING", phase, semantic: "Reanudando recorrido…", pauseRequested: false, lastError: null });
-    return { workflow: next, effect: effect("NAVIGATE", { url: phase === "OPEN_SECTION" ? currentModule(next).url : next.course.url }) };
+    return { workflow: next, effect: effect("NAVIGATE", { url: phase === "WAIT_SECTION" ? currentModule(next).url : next.course.url }) };
   };
   api.bindWorker = function bindWorker(value, tabId) {
     const workflow = api.sanitize(value);
@@ -204,7 +222,13 @@
     const module = currentModule(workflow);
     if (!module) return { workflow: touch(workflow, { status: "ERROR", phase: "ERROR", semantic: "El recorrido quedó inconsistente.", lastError: message("workflow-inconsistent", "No se pudo recuperar el recorrido de forma segura.") }), effect: null };
     const retries = Number.isInteger(workflow.waitRetries) ? workflow.waitRetries : 0;
-    if (retries < 1) return { workflow: touch(workflow, { waitRetries: retries + 1, semantic: "Reintentando el último paso…" }), effect: effect("SCAN", {}) };
+    if (retries < 1) {
+      const retry = touch(workflow, { waitRetries: retries + 1, semantic: "Reintentando el último paso…", lastSafeEvent: "watchdog-retry" });
+      if (["OPEN_SECTION", "WAIT_SECTION", "SCAN_SECTION", "RECHECK_SECTION"].includes(retry.phase)) return { workflow: retry, effect: effect("NAVIGATE", { url: module.url }) };
+      if (["OPEN_FEEDBACK", "WAIT_FEEDBACK", "SCAN_FEEDBACK"].includes(retry.phase) && validId(retry.currentFeedbackId)) return { workflow: retry, effect: effect("NAVIGATE", { url: `${ORIGIN}/mod/feedback/view.php?id=${encodeURIComponent(retry.currentFeedbackId)}` }) };
+      if (["OPEN_FORM", "WAIT_FORM"].includes(retry.phase) && validId(retry.currentFeedbackId)) return { workflow: retry, effect: effect("NAVIGATE", { url: `${ORIGIN}/mod/feedback/complete.php?id=${encodeURIComponent(retry.currentFeedbackId)}` }) };
+      return { workflow: retry, effect: effect("SCAN", {}) };
+    }
     return stopModule(touch(workflow, { waitRetries: 0 }), module, "manual-required", "step-timeout");
   };
   api.onScan = function onScan(value, scan) {
@@ -224,8 +248,9 @@
       return { workflow: touch(workflow, { phase: "VERIFY_SUBMISSION", semantic: "Confirmando envío…", lastSafeEvent: "submit-recovery" }), effect: null };
     }
 
-    if (["OPEN_SECTION", "RECHECK_SECTION", "SCAN_SECTION"].includes(workflow.phase)) {
-      if (scan.pageType !== "SECTION" || !scan.currentSection || scan.currentSection.id !== module.id) return { workflow: wait(workflow, "SCAN_SECTION", "Abriendo módulo…").workflow, effect: effect("NAVIGATE", { url: module.url }) };
+    if (["OPEN_SECTION", "WAIT_SECTION", "RECHECK_SECTION", "SCAN_SECTION"].includes(workflow.phase)) {
+      if (scan.pageType === "COURSE" && scan.course && scan.course.id === workflow.course.id && hasBlockedNotice(scan, module)) return blockModule(workflow, module);
+      if (scan.pageType !== "SECTION" || !scan.currentSection || scan.currentSection.id !== module.id) return wait(workflow, "WAIT_SECTION", "Esperando apertura del módulo…");
       const feedback = (Array.isArray(scan.feedback) ? scan.feedback : []).map(safeFeedback).filter(Boolean);
       if (!feedback.length) return stopModule(workflow, module, "no-feedback", "no-feedback");
       const existingStatuses = new Map(module.feedbackSummary.map((item) => [item.id, item.status]));
@@ -240,18 +265,18 @@
       return { workflow: next, effect: effect("NAVIGATE", { url: pending.url }) };
     }
 
-    if (["OPEN_FEEDBACK", "SCAN_FEEDBACK"].includes(workflow.phase)) {
+    if (["OPEN_FEEDBACK", "WAIT_FEEDBACK", "SCAN_FEEDBACK"].includes(workflow.phase)) {
       const feedbackPage = scan.feedbackPage;
-      if (scan.pageType !== "FEEDBACK" || !feedbackPage || feedbackPage.id !== workflow.currentFeedbackId) return { workflow: wait(workflow, "SCAN_FEEDBACK", "Abriendo encuesta…").workflow, effect: effect("NAVIGATE", { url: `${ORIGIN}/mod/feedback/view.php?id=${encodeURIComponent(workflow.currentFeedbackId)}` }) };
+      if (scan.pageType !== "FEEDBACK" || !feedbackPage || feedbackPage.id !== workflow.currentFeedbackId) return wait(workflow, "WAIT_FEEDBACK", "Esperando apertura de la encuesta…");
       if (scan.feedbackResult && scan.feedbackResult.submissionVerified === true) return api.onVerifiedSubmission(workflow, scan);
       if (scan.feedbackForm && scan.feedbackForm.detected === true) return api.onScan(touch(workflow, { phase: "PREFILL", semantic: "Aplicando valoración…" }), scan);
       if (feedbackPage.canRespond === true && canonical(feedbackPage.responseUrl, "/mod/feedback/complete.php", feedbackPage.id)) return { workflow: touch(workflow, { phase: "OPEN_FORM", semantic: "Abriendo formulario…" }), effect: effect("NAVIGATE", { url: canonical(feedbackPage.responseUrl, "/mod/feedback/complete.php", feedbackPage.id) }) };
       return api.markCurrentFeedback(workflow, "manual-required", "response-form-unavailable");
     }
 
-    if (["OPEN_FORM", "PREFILL", "VERIFY_FORM"].includes(workflow.phase)) {
+    if (["OPEN_FORM", "WAIT_FORM", "PREFILL", "VERIFY_FORM"].includes(workflow.phase)) {
       const form = scan.feedbackForm;
-      if (!form || form.detected !== true || form.id !== workflow.currentFeedbackId) return { workflow: wait(workflow, "OPEN_FORM", "Abriendo formulario…").workflow, effect: effect("NAVIGATE", { url: `${ORIGIN}/mod/feedback/complete.php?id=${encodeURIComponent(workflow.currentFeedbackId)}` }) };
+      if (!form || form.detected !== true || form.id !== workflow.currentFeedbackId) return wait(workflow, "WAIT_FORM", "Esperando apertura del formulario…");
       if (["OPEN_FORM", "PREFILL"].includes(workflow.phase) && form.canPrefill === true && (form.preferenceOptions || []).includes(workflow.preference)) return { workflow: touch(workflow, { phase: "VERIFY_FORM", semantic: "Aplicando valoración…" }), effect: effect("PREFILL", { feedbackId: form.id, expectedQuestionCount: form.questions.length, expectedSignature: form.signature, preference: workflow.preference }) };
       const submission = scan.feedbackSubmission;
       if (submission && submission.readyToSubmit === true) return { workflow: touch(workflow, { phase: "SUBMIT", semantic: "Enviando Feedback…" }), effect: effect("SUBMIT", { expected: { feedbackId: submission.feedbackId, formSignature: submission.formSignature, supportedQuestions: submission.supportedQuestions } }) };

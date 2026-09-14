@@ -29,6 +29,8 @@ assert.ok(script.includes('UIP_AUTOMATION_NEW_RUN'));
 assert.ok(script.includes('workflow.semantic'));
 assert.ok(script.includes("module.selectable === true"));
 assert.ok(script.includes("Sección general no incluida."));
+assert.ok(script.includes('item.status === "blocked" ? "No disponible"'));
+assert.ok(script.includes("WAIT_SECTION"));
 assert.ok(script.includes("phaseLabel"));
 
 // The layout remains responsive and status changes remain visible to assistive tech.
