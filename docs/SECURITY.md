@@ -1,33 +1,71 @@
-# Security And Privacy
+# Seguridad y privacidad
 
-UIP Student Assistant v0.5.0 is a local, background-owned Moodle workflow. It can execute a single user-confirmed sequence of revalidated Feedback actions, but it does not authenticate, fabricate requests, or communicate with any system outside Moodle UIP.
+UIP Student Assistant ejecuta un flujo local sobre Moodle UIP utilizando la sesión ya iniciada en el navegador. La extensión no autentica usuarios, no fabrica solicitudes de red y no se comunica con sistemas externos a Moodle UIP.
 
-## What It Does Not Do
+## Datos que no solicita ni almacena
 
-- It never asks for, stores, reads, or transmits credentials.
-- It does not use cookies, tokens, `sesskey`, login form values, private messages, avatars, screenshots, or raw Moodle HTML.
-- It does not call `fetch`, XHR, remote APIs, AI services, analytics, telemetry, a backend, cloud storage, or a database.
-- It does not use `form.submit()`, `requestSubmit()`, arbitrary script injection, or arbitrary URLs.
-- It does not use `chrome.storage.local` or retain workflow state after the browser session ends.
+La extensión no solicita, lee, almacena ni transmite:
 
-The browser's normal Moodle session renders the page. The content script reports scoped structural metadata when Moodle reaches a page; the background service decides the next allow-listed effect. Every form prefill, submit, or Continue click is re-inspected immediately before it is activated.
+- usuario o contraseña;
+- cookies;
+- tokens de autenticación;
+- `sesskey`;
+- valores de formularios de inicio de sesión;
+- mensajes privados;
+- capturas de pantalla;
+- HTML completo de Moodle.
 
-## Persisted Data
+Tampoco utiliza un backend, analítica, telemetría, almacenamiento en la nube ni una base de datos externa.
 
-`chrome.storage.session` contains only sanitized workflow and discovery metadata: version, run ID, status/phase, worker tab ID, canonical Moodle IDs and URLs, truncated course/module names, selected rating, per-module outcome counts, retry state, safe timestamps, and a bounded activity log of safe labels with module/Feedback IDs and observed names. It excludes DOM fragments, hidden inputs, response values, form signatures, tokens, cookies, credentials, message content, and diagnostics. Every workflow write is sanitized and verified by an immediate read-back.
+## Persistencia
 
-## Manifest Permissions
+`chrome.storage.session` contiene únicamente metadata sanitizada necesaria para discovery y ejecución:
 
-| Permission | Reason |
-| --- | --- |
-| `https://moodle.uip.edu.pa/*` host permission | Limits the passive Moodle content bridge and executor to UIP Moodle. |
-| `storage` | Keeps allow-listed discovery and workflow metadata only for the browser session. |
-| `alarms` | Wakes a bounded watchdog to re-scan one stalled run safely. |
+- versión del workflow;
+- `runId` y estado actual;
+- identificador de la pestaña worker;
+- IDs y URLs canónicas de Moodle;
+- nombres truncados de materias y módulos;
+- valoración seleccionada;
+- estado por módulo;
+- contadores de progreso;
+- reintentos y timestamps seguros;
+- historial limitado de actividad.
 
-There are no permissions for `<all_urls>`, cookies, identity, webRequest, scripting, downloads, notifications, or clipboard APIs.
+No se guardan fragmentos del DOM, campos ocultos, respuestas completas, cuerpos de envío, cookies, credenciales ni diagnósticos completos.
 
-## Failure Handling
+El estado de ejecución no se conserva de forma permanente después de finalizar la sesión del navegador.
 
-Missing evidence does not grant permission to act. Wrong course, stale form, missing submit control, unsupported question, closed worker tab, unexpected route, timeout, or expired Moodle session results in pause, retry-once, or manual-required status. A submission is counted only after a later Moodle result scan verifies it, and a verified Feedback ID is excluded from future scheduling in that run.
+## Permisos del manifiesto
 
-Do not add real Moodle captures, copied diagnostics, screenshots, or student data to the repository. `.gitignore` excludes the local directories intended for such material.
+| Permiso | Uso |
+|---|---|
+| `https://moodle.uip.edu.pa/*` | Limita el content script y las acciones a Moodle UIP. |
+| `storage` | Guarda metadata temporal del discovery y del workflow. |
+| `alarms` | Permite reactivar un watchdog acotado cuando una transición queda esperando. |
+
+La extensión no solicita permisos para `<all_urls>`, cookies, identidad, `webRequest`, descargas, notificaciones ni portapapeles.
+
+## Envío de formularios
+
+UIP Student Assistant no utiliza `form.submit()`, `requestSubmit()`, `fetch()` ni XHR para fabricar envíos.
+
+Antes de enviar un Feedback, el content script vuelve a comprobar:
+
+- el Feedback esperado;
+- el formulario actual;
+- la cantidad de preguntas compatibles;
+- que las respuestas requeridas estén completas;
+- que exista un único control de envío visible y habilitado.
+
+El resultado sólo se considera enviado después de que Moodle muestre evidencia posterior al submit.
+
+## Manejo de errores
+
+La ausencia de evidencia no autoriza una acción. Si la extensión detecta una materia incorrecta, un formulario modificado, una ruta inesperada, una pestaña worker cerrada, un timeout o una sesión expirada, el motor puede pausar el recorrido, realizar un único reintento controlado o dejar el elemento para revisión manual.
+
+Los módulos que Moodle identifica como no disponibles se registran como bloqueados y no detienen el resto del recorrido.
+
+## Reportes y depuración
+
+No deben añadirse al repositorio capturas de Moodle con datos personales, cookies, credenciales, diagnósticos privados ni información académica sensible. `.gitignore` excluye directorios locales destinados a material de prueba y diagnóstico.
