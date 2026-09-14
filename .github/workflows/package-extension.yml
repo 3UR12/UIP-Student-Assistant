@@ -1,0 +1,45 @@
+name: Package browser extension
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Read extension version
+        id: version
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./extension/manifest.json').version")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Validate manifest
+        shell: bash
+        run: |
+          node -e "JSON.parse(require('fs').readFileSync('extension/manifest.json')); console.log('manifest JSON valid')"
+
+      - name: Package extension
+        shell: bash
+        run: |
+          mkdir -p dist
+          cd extension
+          zip -r "../dist/UIP-Student-Assistant-v${{ steps.version.outputs.version }}.zip" .
+
+      - name: Upload packaged extension
+        uses: actions/upload-artifact@v4
+        with:
+          name: UIP-Student-Assistant-v${{ steps.version.outputs.version }}
+          path: dist/UIP-Student-Assistant-v${{ steps.version.outputs.version }}.zip
+          if-no-files-found: error
+          retention-days: 30
