@@ -1,6 +1,65 @@
 /* Moodle executor: the background owns workflow decisions; this script owns DOM primitives. */
+let discoverySettlement = null;
+
+function scanDiscoveryItems(kind) {
+  const scan = globalThis.UIPScannerCore.scanDocument(document);
+  const expectedPage = kind === "courses" ? "AREA_PERSONAL" : "COURSE";
+  const items = kind === "courses" ? scan.courses : scan.modules;
+  return { scan, valid: scan.pageType === expectedPage, found: Array.isArray(items) && items.length > 0 };
+}
+function stopDiscoverySettlement() {
+  if (!discoverySettlement) return;
+  if (discoverySettlement.timer) clearTimeout(discoverySettlement.timer);
+  if (discoverySettlement.debounce) clearTimeout(discoverySettlement.debounce);
+  if (discoverySettlement.observer) discoverySettlement.observer.disconnect();
+  discoverySettlement = null;
+}
+function emitDiscoverySettlement(kind, requestId, reason, scan) {
+  chrome.runtime.sendMessage({ type: "UIP_MOODLE_DISCOVERY_SETTLED", kind, requestId, reason, scannerVersion: scan.scannerVersion, pageType: scan.pageType, scan }).catch(() => undefined);
+}
+function beginDiscoverySettlement(message) {
+  const kind = message && message.kind;
+  const requestId = message && message.requestId;
+  if (!(["courses", "modules"].includes(kind)) || typeof requestId !== "string" || !requestId || requestId.length > 100) return { ok: false, error: "Invalid discovery settlement request." };
+  if (discoverySettlement && discoverySettlement.kind === kind && discoverySettlement.requestId === requestId) return { ok: true, alreadyObserving: true };
+  stopDiscoverySettlement();
+  const initial = scanDiscoveryItems(kind);
+  if (!initial.valid || initial.found) {
+    emitDiscoverySettlement(kind, requestId, initial.found ? "items-found" : "settled-empty", initial.scan);
+    return { ok: true, settledImmediately: true };
+  }
+  const scope = (kind === "courses" ? globalThis.UIPScannerCore.findDashboardScope(document) : globalThis.UIPScannerCore.findMainContent(document)) || document.body || document.documentElement;
+  if (!scope || typeof MutationObserver !== "function") {
+    emitDiscoverySettlement(kind, requestId, "settled-empty", initial.scan);
+    return { ok: true, settledImmediately: true };
+  }
+  const initialUrl = document.location.href;
+  const finish = (reason) => {
+    if (!discoverySettlement || discoverySettlement.kind !== kind || discoverySettlement.requestId !== requestId) return;
+    const final = scanDiscoveryItems(kind);
+    stopDiscoverySettlement();
+    if (document.location.href === initialUrl) emitDiscoverySettlement(kind, requestId, final.found ? "items-found" : reason, final.scan);
+  };
+  const observer = new MutationObserver(() => {
+    if (!discoverySettlement || discoverySettlement.debounce) return;
+    discoverySettlement.debounce = setTimeout(() => {
+      if (!discoverySettlement) return;
+      discoverySettlement.debounce = null;
+      const current = scanDiscoveryItems(kind);
+      if (!current.valid || current.found) finish(current.found ? "items-found" : "settled-empty");
+    }, 150);
+  });
+  discoverySettlement = { kind, requestId, observer, timer: null, debounce: null };
+  observer.observe(scope, { childList: true, subtree: true });
+  discoverySettlement.timer = setTimeout(() => finish("settled-empty"), 10000);
+  return { ok: true };
+}
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (!message) return undefined;
+  if (message.type === "UIP_BEGIN_DISCOVERY_SETTLEMENT") {
+    try { sendResponse(beginDiscoverySettlement(message)); } catch (_) { sendResponse({ ok: false, error: "Discovery settlement could not start." }); }
+    return false;
+  }
   if (message.type === "UIP_SCAN_CURRENT_DOCUMENT") {
     try {
       const scan = globalThis.UIPScannerCore.scanDocument(document);

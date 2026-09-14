@@ -48,6 +48,7 @@ node tests/recovery-service-worker.test.js
 node tests/event-pump-race.test.js --repeat=50
 node tests/blocked-section-redirect.test.js --repeat=50
 node tests/discovery-lifecycle.test.js --repeat=50
+node tests/discovery-settlement-content.test.js
 ```
 
 Read the [manual runbook](docs/TESTING.md), [architecture](docs/ARCHITECTURE.md), [Moodle workflow](docs/MOODLE-FLOW.md), and [security model](docs/SECURITY.md) before an authenticated validation.

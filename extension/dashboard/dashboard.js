@@ -40,6 +40,7 @@
     return "Disponible";
   }
   function renderModules() {
+    const discovery = state.discovery || {};
     const modules = (state.discovery.modules || []).filter((module) => module.name && !/^(general|secci[oó]n general|general section)$/i.test(module.name));
     const available = modules.filter((module) => module.selectable === true);
     ui.fieldset.disabled = !modules.length;
@@ -49,14 +50,14 @@
       const checked = selectable && selectedModuleIds.has(String(module.id)) ? "checked" : "";
       return `<label class="module-row${selectable ? "" : " locked"}" for="${id}"><input id="${id}" type="checkbox" value="${escape(module.id)}" ${checked} ${selectable ? "" : "disabled"}><span><strong>${escape(module.name || "Módulo sin nombre")}</strong><span>${escape(moduleReason(module))}</span></span></label>`;
     }).join("");
-    ui.count.textContent = modules.length ? `${selectedIds().length} seleccionados de ${available.length} disponibles` : "La materia se está cargando en Moodle…";
+    ui.count.textContent = modules.length ? `${selectedIds().length} seleccionados de ${available.length} disponibles` : discovery.status === "loading-modules" ? "Cargando módulos de la materia…" : discovery.status === "modules-ready" ? "No se encontraron módulos disponibles." : "Selecciona una materia para cargar sus módulos.";
   }
   function renderSetup() {
     renderCourses(); renderModules();
     const selected = selectedIds(); const hasRating = Boolean(ui.rating.value); const hasCourse = Boolean(ui.course.value); const ready = hasCourse && selected.length > 0 && hasRating;
     ui.prepare.textContent = `Procesar ${selected.length} módulo${selected.length === 1 ? "" : "s"}`;
     ui.prepare.disabled = !ready;
-    ui.setupReason.textContent = !hasCourse ? "Selecciona una materia para cargar sus módulos." : selected.length === 0 ? "Selecciona al menos un módulo disponible." : !hasRating ? "Selecciona una valoración para continuar." : "El recorrido usará una sola confirmación antes de comenzar.";
+    ui.setupReason.textContent = !hasCourse ? "Selecciona una materia para cargar sus módulos." : state.discovery.status === "loading-modules" ? "Cargando módulos de la materia…" : state.discovery.status === "modules-ready" && !modules.length ? "No se encontraron módulos disponibles." : selected.length === 0 ? "Selecciona al menos un módulo disponible." : !hasRating ? "Selecciona una valoración para continuar." : "El recorrido usará una sola confirmación antes de comenzar.";
     ui.confirmation.classList.toggle("hidden", !confirmationOpen);
   }
   function renderProgress(workflow) {
@@ -85,7 +86,8 @@
   }
   function render() {
     const workflow = state.workflow;
-    ui.technical.textContent = JSON.stringify({ status: workflow && workflow.status || "SETUP", phase: workflow && workflow.phase || "DISCOVERY", transition: workflow && workflow.transition || null, runId: workflow && workflow.runId && workflow.runId.slice(0, 18) || null, courseId: workflow && workflow.course && workflow.course.id || state.discovery.course && state.discovery.course.id || null, workerConnected: workflow && workflow.workerConnected || false, lastEvent: workflow && workflow.lastSafeEvent || null, stepStartedAt: workflow && workflow.stepStartedAt || null, watchdogRetries: workflow && workflow.waitRetries || 0, progress: workflow && workflow.progress || null, lastError: workflow && workflow.lastError || null }, null, 2);
+    const discovery = state.discovery || {};
+    ui.technical.textContent = JSON.stringify({ status: workflow && workflow.status || "SETUP", phase: workflow && workflow.phase || "DISCOVERY", transition: workflow && workflow.transition || null, runId: workflow && workflow.runId && workflow.runId.slice(0, 18) || null, courseId: workflow && workflow.course && workflow.course.id || discovery.course && discovery.course.id || null, workerConnected: workflow && workflow.workerConnected || false, lastEvent: workflow && workflow.lastSafeEvent || null, stepStartedAt: workflow && workflow.stepStartedAt || null, watchdogRetries: workflow && workflow.waitRetries || 0, progress: workflow && workflow.progress || null, lastError: workflow && workflow.lastError || null, discoveryStatus: discovery.status || "idle", discoveryRequestId: discovery.requestId && discovery.requestId.slice(0, 18) || null, discoveryWorkerConnected: Number.isInteger(discovery.workerTabId), courseCount: (discovery.courses || []).length, moduleCount: (discovery.modules || []).length, discoveryStartedAt: discovery.startedAt || null, discoveryError: discovery.error || null }, null, 2);
     if (!workflow || ["READY_TO_START", "CANCELLED"].includes(workflow.status)) { show(ui.setup); renderSetup(); return; }
     if (workflow.status === "DONE") { show(ui.done); renderDone(workflow); return; }
     if (["PAUSED", "LOGIN_REQUIRED", "ERROR"].includes(workflow.status)) {

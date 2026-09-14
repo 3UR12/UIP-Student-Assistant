@@ -11,6 +11,7 @@ function harness(initialDiscovery) {
   const stored = initialDiscovery ? { "uip.automation.discovery.v1": initialDiscovery } : {};
   const updates = [];
   const alarms = [];
+  const workerMessages = [];
   const listeners = {};
   const tabs = new Map([[41, { id: 41, url: `${origin}/my/` }]]);
   let messageListener = null;
@@ -30,7 +31,7 @@ function harness(initialDiscovery) {
       create(properties, callback) { const tab = { id: 99, ...properties }; tabs.set(tab.id, tab); callback(tab); },
       update(id, properties, callback) { const tab = { ...(tabs.get(id) || { id }), ...properties, id }; tabs.set(id, tab); updates.push(tab); callback(tab); },
       // Deliberately no scan response: page-ready controls the simulated Moodle delay.
-      sendMessage(_id, _message, callback) { callback(null); },
+      sendMessage(_id, message, callback) { workerMessages.push(message); callback({ ok: true }); },
       onRemoved: listenerSlot("removed"), onUpdated: listenerSlot("updated")
     }
   };
@@ -40,9 +41,10 @@ function harness(initialDiscovery) {
   vm.createContext(context);
   vm.runInContext(fs.readFileSync("extension/background/workflow-service.js", "utf8"), context, { filename: "workflow-service.js" });
   return {
-    stored, updates, alarms, listeners,
+    stored, updates, alarms, workerMessages, listeners,
     request(message) { return new Promise((resolve) => { assert.equal(messageListener(message, {}, resolve), true, `${message.type} must retain response channel`); }); },
     page(scan) { assert.equal(messageListener({ type: "UIP_MOODLE_PAGE_READY", scan }, { tab: { id: 41 } }, () => {}), false); },
+    settled(kind, requestId, reason, scan, tabId = 41) { assert.equal(messageListener({ type: "UIP_MOODLE_DISCOVERY_SETTLED", kind, requestId, reason, scan }, { tab: { id: tabId } }, () => {}), false); },
     async settle() { for (let index = 0; index < 8; index += 1) await tick(); },
     homeNavigations() { return updates.filter((tab) => tab.url === `${origin}/my/`).length; }
   };
@@ -65,8 +67,12 @@ async function slowMoodleScenario() {
   assert.equal(test.homeNavigations(), 1, "read-only dashboard refreshes must not restart discovery");
 
   test.listeners.updated(41, { status: "complete" }, { id: 41, url: `${origin}/my/` });
-  test.page({ pageType: "AREA_PERSONAL", courses: courses(5) });
-  test.page({ pageType: "AREA_PERSONAL", courses: courses(5) });
+  test.page({ pageType: "AREA_PERSONAL", courses: [] });
+  await test.settle();
+  assert.equal(test.stored["uip.automation.discovery.v1"].status, "loading-courses", "an early empty dashboard must not become a terminal result");
+  assert.ok(test.workerMessages.some((message) => message.type === "UIP_BEGIN_DISCOVERY_SETTLEMENT" && message.kind === "courses"));
+  test.settled("courses", requestId, "items-found", { pageType: "AREA_PERSONAL", courses: courses(5) });
+  test.settled("courses", requestId, "items-found", { pageType: "AREA_PERSONAL", courses: courses(5) });
   await test.settle();
   const ready = test.stored["uip.automation.discovery.v1"];
   assert.equal(ready.status, "courses-ready");
@@ -105,6 +111,9 @@ async function terminalDiscoveryScenarios() {
   await zero.request({ type: "UIP_AUTOMATION_DISCOVER_COURSES" });
   zero.page({ pageType: "AREA_PERSONAL", courses: [] });
   await zero.settle();
+  assert.equal(zero.stored["uip.automation.discovery.v1"].status, "loading-courses");
+  zero.settled("courses", zero.stored["uip.automation.discovery.v1"].requestId, "settled-empty", { pageType: "AREA_PERSONAL", courses: [] });
+  await zero.settle();
   assert.equal(zero.stored["uip.automation.discovery.v1"].status, "courses-ready");
   assert.equal(zero.stored["uip.automation.discovery.v1"].courses.length, 0);
 
@@ -115,11 +124,47 @@ async function terminalDiscoveryScenarios() {
   assert.equal(expired.homeNavigations(), 0);
 }
 
+async function modulesAndStaleSettlementScenarios() {
+  const initial = { status: "courses-ready", requestId: "courses-ready", workerTabId: 41, startedAt: null, courses: courses(1), modules: [], course: null, error: null };
+  const modules = harness(initial);
+  const selected = await modules.request({ type: "UIP_AUTOMATION_SELECT_COURSE", course: courses(1)[0] });
+  assert.equal(selected.ok, true);
+  const requestId = modules.stored["uip.automation.discovery.v1"].requestId;
+  modules.page({ pageType: "COURSE", course: { id: "8100" }, modules: [] });
+  await modules.settle();
+  assert.equal(modules.stored["uip.automation.discovery.v1"].status, "loading-modules");
+  modules.settled("modules", requestId, "items-found", { pageType: "COURSE", course: { id: "8100" }, modules: Array.from({ length: 16 }, (_, index) => ({ id: String(7000 + index), name: `Semana ${index + 1}`, url: `${origin}/course/section.php?id=${7000 + index}`, available: true, locked: false })) });
+  await modules.settle();
+  assert.equal(modules.stored["uip.automation.discovery.v1"].status, "modules-ready");
+  assert.equal(modules.stored["uip.automation.discovery.v1"].modules.length, 16);
+
+  const emptyModules = harness(initial);
+  await emptyModules.request({ type: "UIP_AUTOMATION_SELECT_COURSE", course: courses(1)[0] });
+  const emptyRequest = emptyModules.stored["uip.automation.discovery.v1"].requestId;
+  emptyModules.page({ pageType: "COURSE", course: { id: "8100" }, modules: [] });
+  await emptyModules.settle();
+  emptyModules.settled("modules", emptyRequest, "settled-empty", { pageType: "COURSE", course: { id: "8100" }, modules: [] });
+  await emptyModules.settle();
+  assert.equal(emptyModules.stored["uip.automation.discovery.v1"].status, "modules-ready");
+  assert.equal(emptyModules.stored["uip.automation.discovery.v1"].modules.length, 0);
+
+  const stale = harness();
+  await stale.request({ type: "UIP_AUTOMATION_DISCOVER_COURSES" });
+  const requestA = stale.stored["uip.automation.discovery.v1"].requestId;
+  // This represents a newer persisted request after a navigation/document replacement.
+  stale.stored["uip.automation.discovery.v1"] = { ...stale.stored["uip.automation.discovery.v1"], requestId: "courses-new-request", settlement: null };
+  stale.settled("courses", requestA, "items-found", { pageType: "AREA_PERSONAL", courses: courses(5) });
+  await stale.settle();
+  assert.equal(stale.stored["uip.automation.discovery.v1"].requestId, "courses-new-request");
+  assert.equal(stale.stored["uip.automation.discovery.v1"].status, "loading-courses");
+}
+
 (async () => {
   const repeat = Number((process.argv.find((argument) => argument.startsWith("--repeat=")) || "--repeat=1").split("=")[1]);
   assert.ok(Number.isInteger(repeat) && repeat >= 1 && repeat <= 100, "--repeat must be an integer between 1 and 100");
   for (let index = 0; index < repeat; index += 1) await slowMoodleScenario();
   await staleRefreshScenario();
   await terminalDiscoveryScenarios();
+  await modulesAndStaleSettlementScenarios();
   console.log(`discovery lifecycle and slow Moodle tests passed ${repeat}/${repeat}`);
 })().catch((error) => { console.error(error); process.exitCode = 1; });

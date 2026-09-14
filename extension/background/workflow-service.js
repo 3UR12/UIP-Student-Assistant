@@ -65,7 +65,7 @@ async function loadDiscovery() {
   if (!stored.ok) return stored;
   const value = stored.value && typeof stored.value === "object" ? stored.value : {};
   const inferredStatus = value.error === "login-required" ? "login-required" : Array.isArray(value.modules) && value.modules.length && value.course ? "modules-ready" : Array.isArray(value.courses) && value.courses.length ? "courses-ready" : "idle";
-  return { ok: true, discovery: { courses: [], modules: [], course: null, requestId: null, startedAt: null, updatedAt: null, error: null, ...value, status: DISCOVERY_STATUSES.has(value.status) ? value.status : inferredStatus } };
+  return { ok: true, discovery: { courses: [], modules: [], course: null, requestId: null, workerTabId: null, settlement: null, startedAt: null, updatedAt: null, error: null, ...value, status: DISCOVERY_STATUSES.has(value.status) ? value.status : inferredStatus } };
 }
 async function saveDiscovery(value) {
   const safe = {
@@ -78,6 +78,8 @@ async function saveDiscovery(value) {
     course: value && value.course && typeof value.course.id === "string" && isMoodleUrl(value.course.url) ? { id: value.course.id, url: value.course.url, name: typeof value.course.name === "string" ? value.course.name.slice(0, 300) : null } : null,
     status: value && DISCOVERY_STATUSES.has(value.status) ? value.status : "idle",
     requestId: value && typeof value.requestId === "string" ? value.requestId.slice(0, 100) : null,
+    workerTabId: value && Number.isInteger(value.workerTabId) ? value.workerTabId : null,
+    settlement: value && value.settlement && ["courses", "modules"].includes(value.settlement.kind) && typeof value.settlement.requestId === "string" ? { kind: value.settlement.kind, requestId: value.settlement.requestId.slice(0, 100) } : null,
     startedAt: value && Number.isFinite(value.startedAt) ? value.startedAt : null,
     updatedAt: Date.now(), error: value && typeof value.error === "string" ? value.error.slice(0, 120) : null
   };
@@ -155,18 +157,51 @@ async function scanWorker(tabId) {
   const response = await sendToWorker(tabId, { type: "UIP_SCAN_CURRENT_DOCUMENT" });
   if (response && response.ok && response.scan) await enqueueScan(tabId, response.scan);
 }
-async function handleDiscovery(scan) {
+async function requestDiscoverySettlement(discovery, tabId, kind) {
+  if (!discovery || discovery.workerTabId !== tabId || discovery.settlement && discovery.settlement.kind === kind && discovery.settlement.requestId === discovery.requestId) return;
+  const saved = await persistDiscovery({ ...discovery, settlement: { kind, requestId: discovery.requestId } });
+  if (saved.ok) await sendToWorker(tabId, { type: "UIP_BEGIN_DISCOVERY_SETTLEMENT", kind, requestId: discovery.requestId });
+}
+async function handleDiscovery(tabId, scan) {
   const current = await loadDiscovery();
   if (!current.ok) return;
-  if (scan.sessionApparentlyNotStarted === true) { await persistDiscovery({ ...current.discovery, status: "login-required", startedAt: null, error: "login-required" }); return; }
-  if (scan.pageType === "AREA_PERSONAL") await persistDiscovery({ ...current.discovery, status: "courses-ready", startedAt: null, courses: scan.courses || [], error: null });
-  if (scan.pageType === "COURSE" && scan.course && scan.course.id) await persistDiscovery({ ...current.discovery, status: "modules-ready", startedAt: null, course: scan.course, modules: scan.modules || [], error: null });
+  const discovery = current.discovery;
+  if (discovery.workerTabId !== tabId) return;
+  if (scan.sessionApparentlyNotStarted === true) { await persistDiscovery({ ...discovery, status: "login-required", settlement: null, startedAt: null, error: "login-required" }); return; }
+  if (discovery.status === "loading-courses" && scan.pageType === "AREA_PERSONAL") {
+    if (Array.isArray(scan.courses) && scan.courses.length) await persistDiscovery({ ...discovery, status: "courses-ready", settlement: null, startedAt: null, courses: scan.courses, error: null });
+    else await requestDiscoverySettlement(discovery, tabId, "courses");
+    return;
+  }
+  if (discovery.status === "loading-modules" && scan.pageType === "COURSE" && scan.course && discovery.course && scan.course.id === discovery.course.id) {
+    if (Array.isArray(scan.modules) && scan.modules.length) await persistDiscovery({ ...discovery, status: "modules-ready", settlement: null, startedAt: null, course: scan.course, modules: scan.modules, error: null });
+    else await requestDiscoverySettlement(discovery, tabId, "modules");
+  }
+}
+async function handleDiscoverySettlement(tabId, message) {
+  const kind = message && message.kind;
+  const requestId = message && message.requestId;
+  const scan = message && message.scan;
+  if (!(["courses", "modules"].includes(kind)) || typeof requestId !== "string" || !scan || typeof scan !== "object") return;
+  const current = await loadDiscovery();
+  if (!current.ok) return;
+  const discovery = current.discovery;
+  const expectedStatus = kind === "courses" ? "loading-courses" : "loading-modules";
+  const expectedPage = kind === "courses" ? "AREA_PERSONAL" : "COURSE";
+  if (discovery.status !== expectedStatus || discovery.requestId !== requestId || discovery.workerTabId !== tabId || scan.pageType !== expectedPage) return;
+  if (scan.sessionApparentlyNotStarted === true) { await persistDiscovery({ ...discovery, status: "login-required", settlement: null, startedAt: null, error: "login-required" }); return; }
+  if (kind === "modules" && (!scan.course || !discovery.course || scan.course.id !== discovery.course.id)) return;
+  const items = kind === "courses" ? scan.courses : scan.modules;
+  if (!Array.isArray(items) || (!items.length && message.reason !== "settled-empty")) return;
+  await persistDiscovery(kind === "courses"
+    ? { ...discovery, status: "courses-ready", settlement: null, startedAt: null, courses: items, error: null }
+    : { ...discovery, status: "modules-ready", settlement: null, startedAt: null, course: scan.course, modules: items, error: null });
 }
 async function processScan(tabId, scan) {
   try {
     const loaded = await loadWorkflow();
     if (!loaded.ok) return;
-    if (!loaded.workflow || !["RUNNING", "LOGIN_REQUIRED"].includes(loaded.workflow.status)) { await handleDiscovery(scan); return; }
+    if (!loaded.workflow || !["RUNNING", "LOGIN_REQUIRED"].includes(loaded.workflow.status)) { await handleDiscovery(tabId, scan); return; }
     if (loaded.workflow.workerTabId !== tabId) return;
     if (loaded.workflow.status === "LOGIN_REQUIRED" && scan.sessionApparentlyNotStarted !== true) { await applyTransition(engine.resume(loaded.workflow)); return; }
     await applyTransition(engine.onScan(loaded.workflow, scan));
@@ -219,7 +254,7 @@ async function beginCourseDiscovery(sender) {
     }
     const requestId = `courses-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
     // Keep last known courses visible while Moodle refreshes the source page.
-    const loading = await persistDiscovery({ ...current.discovery, status: "loading-courses", requestId, startedAt: Date.now(), error: null });
+    const loading = await persistDiscovery({ ...current.discovery, status: "loading-courses", requestId, workerTabId: worker.id, settlement: null, startedAt: Date.now(), error: null });
     if (!loading.ok) return loading;
     const navigated = await tabsUpdate(worker.id, { url: MOODLE_HOME });
     if (!navigated) {
@@ -238,7 +273,7 @@ async function selectCourse(course) {
   if (!found) return { ok: false, error: "course-not-observed" };
   const worker = await ensureWorker();
   if (!worker) return { ok: false, error: "worker-unavailable" };
-  const loading = await persistDiscovery({ ...discovery.discovery, status: "loading-modules", requestId: `modules-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`, startedAt: Date.now(), course: found, modules: [], error: null });
+  const loading = await persistDiscovery({ ...discovery.discovery, status: "loading-modules", requestId: `modules-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`, workerTabId: worker.id, settlement: null, startedAt: Date.now(), course: found, modules: [], error: null });
   if (!loading.ok) return loading;
   if (!await tabsUpdate(worker.id, { url: found.url })) {
     await persistDiscovery({ ...loading.discovery, status: "error", startedAt: null, error: "discovery-navigation-failed" });
@@ -318,6 +353,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message) return undefined;
   const respond = (promise) => { Promise.resolve(promise).then(sendResponse).catch(() => sendResponse({ ok: false, error: "background-unavailable" })); return true; };
   if (message.type === "UIP_MOODLE_PAGE_READY") { enqueueScan(sender.tab && sender.tab.id, message.scan || null); return false; }
+  if (message.type === "UIP_MOODLE_DISCOVERY_SETTLED") { handleDiscoverySettlement(sender.tab && sender.tab.id, message); return false; }
   if (message.type === "UIP_AUTOMATION_GET_STATE") return respond(currentState());
   if (message.type === "UIP_AUTOMATION_DISCOVER_COURSES") return respond(beginCourseDiscovery(sender));
   if (message.type === "UIP_AUTOMATION_SELECT_COURSE") return respond(selectCourse(message.course));

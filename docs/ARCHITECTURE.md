@@ -12,7 +12,9 @@
 
 `extension/dashboard/` is a persistent extension page opened from the action icon. It displays setup, one final confirmation, live progress, terminal summary, and pause/recovery controls. It never clicks Moodle controls or writes workflow state directly.
 
-Course discovery has a separate persisted lifecycle: `idle`, `loading-courses`, `courses-ready`, `loading-modules`, `modules-ready`, `login-required`, or `error`, with a request ID and start time. Dashboard state refreshes are read-only and single-flight. Only the one-time dashboard bootstrap and an explicit user update action can start discovery. The service coalesces concurrent requests, retains known courses while refreshing, navigates `/my/` once per request, and ends a missing response through a persisted discovery timeout rather than retrying indefinitely.
+Course discovery has a separate persisted lifecycle: `idle`, `loading-courses`, `courses-ready`, `loading-modules`, `modules-ready`, `login-required`, or `error`, with a request ID, worker-tab ID, settlement marker, and start time. Dashboard state refreshes are read-only and single-flight. Only the one-time dashboard bootstrap and an explicit user update action can start discovery. The service coalesces concurrent requests, retains known courses while refreshing, navigates `/my/` once per request, and ends a missing response through a persisted discovery timeout rather than retrying indefinitely.
+
+`UIP_MOODLE_PAGE_READY` means only that Moodle rendered a route. For an empty `/my/` or course scan, the service retains the loading state and asks the content script to start one bounded `MutationObserver` over the dashboard or main scope. It emits `UIP_MOODLE_DISCOVERY_SETTLED` when observed items appear or after one final empty scan at its 10-second limit. The service accepts settlement only when its request ID, expected page, and worker tab still match; duplicate or stale observer messages are ignored.
 
 ## Execution Flow
 
