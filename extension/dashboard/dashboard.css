@@ -65,6 +65,7 @@ legend { padding: 0; font-size: 19px; font-weight: 700; }
 .module-status > span { color: #7b9289; font-weight: 700; }
 .module-status strong { overflow: hidden; color: #24443e; text-overflow: ellipsis; white-space: nowrap; }
 .module-status em { color: #71857e; font-style: normal; }
+.done-details .module-status small { grid-column: 2 / -1; color: #617772; }
 .module-status.running > span { color: #b96839; }.module-status.manual-required > span, .module-status.failed > span { color: #b24f37; }.module-status.completed > span { color: #1e6a58; }
 .problem { margin: 18px 0 0; padding: 12px; border-left: 3px solid #b9563a; color: #763c2c; background: #fff3ef; font: 14px/1.5 Arial, sans-serif; }
 .technical { margin-top: 22px; color: #506963; font: 13px Arial, sans-serif; }

@@ -17,7 +17,7 @@ function element(hidden = false) {
 }
 
 (async () => {
-  const ids = ["notice", "setup-view", "running-view", "paused-view", "done-view", "course-select", "module-list", "modules-fieldset", "module-count", "rating-select", "setup-reason", "prepare-run", "confirm-run", "confirm-summary", "progress-bar", "progress-label", "run-state", "current-module", "current-action", "run-problem", "technical-output", "current-feedback", "moodle-connection", "last-activity", "step-elapsed", "metric-submitted", "metric-completed", "metric-empty", "metric-manual", "activity-log", "module-summary", "done-summary", "done-submitted", "done-completed", "done-empty", "done-manual", "paused-title", "paused-reason", "resume-run", "restart-run", "retry-courses", "select-all", "clear-all", "dismiss-confirm", "start-run", "pause-run", "cancel-run", "cancel-paused", "open-moodle", "new-run"];
+  const ids = ["notice", "setup-view", "running-view", "paused-view", "done-view", "course-select", "module-list", "modules-fieldset", "module-count", "rating-select", "setup-reason", "prepare-run", "confirm-run", "confirm-summary", "progress-bar", "progress-label", "run-state", "current-module", "current-action", "run-problem", "technical-output", "current-feedback", "moodle-connection", "last-activity", "step-elapsed", "metric-submitted", "metric-completed", "metric-empty", "metric-blocked", "metric-manual", "metric-failed", "activity-log", "module-summary", "done-title", "done-summary", "done-submitted", "done-completed", "done-empty", "done-blocked", "done-manual", "done-failed", "done-module-summary", "paused-title", "paused-reason", "resume-run", "restart-run", "retry-courses", "select-all", "clear-all", "dismiss-confirm", "start-run", "pause-run", "cancel-run", "cancel-paused", "open-moodle", "new-run"];
   const hidden = new Set(["running-view", "paused-view", "done-view", "confirm-run", "run-problem", "restart-run"]);
   const elements = new Map(ids.map((id) => [id, element(hidden.has(id))]));
   const modules = Array.from({ length: 15 }, (_, index) => ({ id: String(7001 + index), name: `Módulo ${index + 1}`, url: `https://moodle.uip.edu.pa/course/section.php?id=${7001 + index}`, available: true, locked: false, selectable: true }));
@@ -65,5 +65,22 @@ function element(hidden = false) {
   assert.equal(start.preference, "Excelente");
   assert.equal(elements.get("running-view").classList.contains("hidden"), false);
   assert.equal(elements.get("setup-view").classList.contains("hidden"), true);
+
+  const outcomes = modules.slice(0, 15).map((item, index) => index === 0 ? { id: item.id, name: item.name, status: "completed", reason: "submission-verified" } : index === 1 ? { id: item.id, name: item.name, status: "completed", reason: "completed" } : index === 2 ? { id: item.id, name: item.name, status: "manual-required", reason: "form-not-compatible" } : { id: item.id, name: item.name, status: "blocked", reason: "module-blocked" });
+  hook.setState({ workflow: { status: "DONE", terminalOutcome: "COMPLETED_WITH_ISSUES", progress: { total: 15, reviewed: 15, submitted: 1, alreadyCompleted: 1, noFeedback: 0, skipped: 12, manualRequired: 1, failed: 0 }, moduleOutcomes: outcomes }, discovery: backend.discovery });
+  hook.renderSetup();
+  assert.equal(elements.get("done-title").textContent, "Recorrido finalizado con incidencias");
+  assert.equal(elements.get("done-summary").textContent.includes("15 de 15 módulos fueron evaluados"), true);
+  assert.equal(elements.get("done-summary").textContent.includes("sin requerir pasos manuales"), false);
+  assert.equal(elements.get("done-submitted").textContent, 1);
+  assert.equal(elements.get("done-completed").textContent, 1);
+  assert.equal(elements.get("done-blocked").textContent, 12);
+  assert.equal(elements.get("done-manual").textContent, 1);
+  assert.equal(elements.get("done-failed").textContent, 0);
+  assert.equal(elements.get("done-module-summary").innerHTML.includes("No disponible"), true);
+  assert.equal(elements.get("done-module-summary").innerHTML.includes("Revisión manual"), true);
+  assert.equal(elements.get("done-module-summary").innerHTML.includes("No se pudo verificar el formulario automáticamente."), true);
+  assert.equal(elements.get("technical-output").textContent.includes("moduleOutcomes"), true);
+  assert.equal(elements.get("technical-output").textContent.includes("Excelente"), false);
   console.log("dashboard modules-ready setup and confirmation tests passed");
 })().catch((error) => { console.error(error); process.exitCode = 1; });

@@ -24,6 +24,15 @@ const runningMarkup = html.slice(html.indexOf('id="running-view"'), html.indexOf
 
 // PAUSED, DONE, and ERROR each expose an understandable recovery route.
 ["id=\"paused-view\"", "id=\"paused-reason\"", "id=\"resume-run\"", "id=\"cancel-paused\"", "id=\"restart-run\"", "id=\"done-view\"", "id=\"done-summary\"", "id=\"new-run\""].forEach(has);
+[
+  "id=\"metric-blocked\"", "id=\"metric-manual\"", "id=\"metric-failed\"",
+  "id=\"done-blocked\"", "id=\"done-manual\"", "id=\"done-failed\"", "id=\"done-module-summary\""
+].forEach(has);
+assert.equal(html.includes("Requieren revisión"), false);
+assert.equal(script.includes("sin requerir pasos manuales"), false);
+assert.ok(script.includes("terminalOutcome"));
+assert.ok(script.includes("moduleOutcomes"));
+assert.ok(script.includes("outcomeLabel"));
 assert.ok(script.includes('workflow.status === "ERROR"'));
 assert.ok(script.includes('UIP_AUTOMATION_NEW_RUN'));
 assert.ok(script.includes('workflow.semantic'));

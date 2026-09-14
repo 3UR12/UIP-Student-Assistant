@@ -212,6 +212,7 @@ node tests/workflow-service.test.js
 node tests/dashboard-ux.test.js
 node tests/dashboard-modules-ready.test.js
 node tests/dashboard-start-lifecycle.test.js
+node tests/terminal-outcomes.test.js
 node tests/automation-e2e.test.js --repeat=20
 node tests/lifecycle-idempotency.test.js
 node tests/recovery-service-worker.test.js
