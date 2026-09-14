@@ -88,6 +88,11 @@
     if (!validId(id) || !url) return null;
     return { id, url, name: text(feedback.name), completionState: ["completed", "incomplete", "unknown"].includes(feedback.completionState) ? feedback.completionState : "unknown", available: feedback.available === true ? true : feedback.available === false ? false : null };
   }
+  function moduleReference(value) {
+    const source = text(value, 260);
+    const match = source && source.match(/m[oó]dulo\s*#?\s*(\d+)/i);
+    return match ? { reference: `Módulo#${match[1]}`, number: match[1] } : null;
+  }
   function hasBlockedNotice(scan, module) {
     if (!scan || scan.pageType !== "COURSE" || !scan.course || !Array.isArray(scan.pageNotices)) return false;
     const blocked = /\b(no disponible|not available|restringido|restricted)\b/i;
@@ -98,7 +103,11 @@
       // A generic course warning must not block whichever module happens to be current.
       const compactNotice = value.toLocaleLowerCase().replace(/\s+/g, "");
       const compactModule = moduleName && moduleName.toLocaleLowerCase().replace(/\s+/g, "");
-      return !compactModule || compactNotice.includes(compactModule);
+      const noticeReference = moduleReference(value);
+      const currentReference = moduleReference(moduleName);
+      // Structured references prevent #1 from matching an unrelated #10 warning.
+      if (currentReference || noticeReference) return Boolean(currentReference && noticeReference && currentReference.number === noticeReference.number);
+      return Boolean(compactModule && compactNotice.includes(compactModule));
     });
   }
   function effect(type, payload) { return { type, ...payload }; }

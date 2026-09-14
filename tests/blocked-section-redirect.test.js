@@ -5,7 +5,11 @@ const vm = require("vm");
 
 const origin = "https://moodle.uip.edu.pa";
 const course = { id: "8169", name: "UAT Moodle", url: `${origin}/course/view.php?id=8169` };
-const modules = [1, 2, 3].map((number) => ({ id: `71${number}`, name: `Módulo #${number}`, url: `${origin}/course/section.php?id=71${number}` }));
+const modules = [
+  { id: "711", name: "Módulo #1 Introducción", url: `${origin}/course/section.php?id=711` },
+  { id: "712", name: "Módulo#2 Memoria ROM y RAM", url: `${origin}/course/section.php?id=712` },
+  { id: "713", name: "Módulo #3 Práctica guiada", url: `${origin}/course/section.php?id=713` }
+];
 const tick = (milliseconds = 3) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
 function loadEngine() {

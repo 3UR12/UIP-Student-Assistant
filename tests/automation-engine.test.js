@@ -38,6 +38,17 @@ const unrelatedNotice = engine.onScan(workflow, { pageType: "COURSE", course: { 
 assert.equal(unrelatedNotice.workflow.modules[0].status, "running");
 assert.equal(unrelatedNotice.effect, null);
 
+function blockedByNotice(moduleName, notice) {
+  const module = { id: "7999", name: moduleName, url: "https://moodle.uip.edu.pa/course/section.php?id=7999" };
+  const running = engine.start(engine.create({ course, modules: [module], preference: "Muy bueno", workerTabId: 41 })).workflow;
+  return engine.onScan(running, { pageType: "COURSE", course: { id: "9001" }, pageNotices: [{ type: "warning", text: notice }] }).workflow.modules[0].status;
+}
+assert.equal(blockedByNotice("Módulo#2 Memoria ROM y RAM", "Módulo#2 no disponible"), "blocked");
+assert.notEqual(blockedByNotice("Módulo#2 Memoria ROM y RAM", "Módulo#3 no disponible"), "blocked");
+assert.notEqual(blockedByNotice("Módulo #10", "Módulo#1 no disponible"), "blocked");
+assert.equal(blockedByNotice("Módulo #2 - Memoria", "Módulo  #2 no disponible"), "blocked");
+assert.notEqual(blockedByNotice("Módulo#2 Memoria ROM y RAM", "Contenido no disponible"), "blocked");
+
 transition = engine.onScan(workflow, section("7001", [incomplete("8801")]));
 assert.equal(transition.workflow.phase, "OPEN_FEEDBACK");
 assert.equal(transition.effect.url, "https://moodle.uip.edu.pa/mod/feedback/view.php?id=8801");
