@@ -23,7 +23,7 @@
     const course = scan.course && { id: scan.course.id || null, name: cleanLabel(scan.course.name), rawName: cleanLabel(scan.course.rawName), displayName: cleanLabel(scan.course.displayName), url: cleanUrl(scan.course.url) };
     return {
       scannerVersion: typeof scan.scannerVersion === "string" ? scan.scannerVersion : null,
-      pageType: ["AREA_PERSONAL", "COURSE", "SECTION", "FEEDBACK", "OTHER"].includes(scan.pageType) ? scan.pageType : "OTHER",
+      pageType: ["AREA_PERSONAL", "MY_COURSES", "COURSE", "SECTION", "FEEDBACK", "OTHER"].includes(scan.pageType) ? scan.pageType : "OTHER",
       partial: Boolean(scan.partial),
       course: course || null,
       currentSection: scan.currentSection ? { id: scan.currentSection.id || null, sectionNumber: Number.isInteger(scan.currentSection.sectionNumber) ? scan.currentSection.sectionNumber : null, name: cleanLabel(scan.currentSection.name), url: cleanUrl(scan.currentSection.url) } : null,
@@ -52,6 +52,14 @@
       pageNotices: (scan.pageNotices || []).map((item) => ({ type: ["error", "warning", "notice"].includes(item.type) ? item.type : "notice", text: cleanText(item.text) })).filter((item) => item.text).slice(0, 20),
       sectionNavigation: scan.sectionNavigation ? { currentSectionId: scan.sectionNavigation.currentSectionId || null, previous: scan.sectionNavigation.previous ? { id: scan.sectionNavigation.previous.id || null, url: cleanUrl(scan.sectionNavigation.previous.url), available: maybeBoolean(scan.sectionNavigation.previous.available) } : null, next: scan.sectionNavigation.next ? { id: scan.sectionNavigation.next.id || null, url: cleanUrl(scan.sectionNavigation.next.url), available: maybeBoolean(scan.sectionNavigation.next.available) } : null } : null,
       courses: (scan.courses || []).map((item) => ({ id: item.id || null, name: cleanLabel(item.name), url: cleanUrl(item.url), progress: Number.isFinite(item.progress) ? item.progress : null, visible: item.visible === true, source: item.source === "course-link" ? "course-link" : "unknown" })),
+      courseDiscovery: scan.courseDiscovery ? {
+        sourcePage: ["AREA_PERSONAL", "MY_COURSES"].includes(scan.courseDiscovery.sourcePage) ? scan.courseDiscovery.sourcePage : null,
+        candidateLinks: Number.isInteger(scan.courseDiscovery.candidateLinks) ? Math.max(0, scan.courseDiscovery.candidateLinks) : 0,
+        canonicalLinks: Number.isInteger(scan.courseDiscovery.canonicalLinks) ? Math.max(0, scan.courseDiscovery.canonicalLinks) : 0,
+        visibleLinks: Number.isInteger(scan.courseDiscovery.visibleLinks) ? Math.max(0, scan.courseDiscovery.visibleLinks) : 0,
+        excludedLinks: Number.isInteger(scan.courseDiscovery.excludedLinks) ? Math.max(0, scan.courseDiscovery.excludedLinks) : 0,
+        acceptedCourses: Number.isInteger(scan.courseDiscovery.acceptedCourses) ? Math.max(0, scan.courseDiscovery.acceptedCourses) : 0
+      } : null,
       modules: (scan.modules || []).map((item) => ({ id: item.id || null, sectionNumber: Number.isInteger(item.sectionNumber) ? item.sectionNumber : null, name: cleanLabel(item.name), url: cleanUrl(item.url), available: maybeBoolean(item.available), locked: maybeBoolean(item.locked), restrictionText: cleanText(item.restrictionText), completionState: completion(item.completionState) })),
       activities: (scan.activities || []).map((item) => ({ id: item.id || null, name: cleanLabel(item.name), type: cleanLabel(item.type), url: cleanUrl(item.url), completionState: completion(item.completionState), available: maybeBoolean(item.available), restrictionText: cleanText(item.restrictionText) })),
       feedback: (scan.feedback || []).map((item) => ({ id: item.id || null, name: cleanLabel(item.name), url: cleanUrl(item.url), completionState: completion(item.completionState), available: maybeBoolean(item.available), required: maybeBoolean(item.required), position: Number.isInteger(item.position) ? item.position : null })),

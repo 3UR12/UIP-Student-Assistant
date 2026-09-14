@@ -3,9 +3,9 @@ let discoverySettlement = null;
 
 function scanDiscoveryItems(kind) {
   const scan = globalThis.UIPScannerCore.scanDocument(document);
-  const expectedPage = kind === "courses" ? "AREA_PERSONAL" : "COURSE";
+  const expectedPages = kind === "courses" ? ["MY_COURSES", "AREA_PERSONAL"] : ["COURSE"];
   const items = kind === "courses" ? scan.courses : scan.modules;
-  return { scan, valid: scan.pageType === expectedPage, found: Array.isArray(items) && items.length > 0 };
+  return { scan, valid: expectedPages.includes(scan.pageType), found: Array.isArray(items) && items.length > 0 };
 }
 function stopDiscoverySettlement() {
   if (!discoverySettlement) return;
@@ -28,7 +28,8 @@ function beginDiscoverySettlement(message) {
     emitDiscoverySettlement(kind, requestId, initial.found ? "items-found" : "settled-empty", initial.scan);
     return { ok: true, settledImmediately: true };
   }
-  const scope = (kind === "courses" ? globalThis.UIPScannerCore.findDashboardScope(document) : globalThis.UIPScannerCore.findMainContent(document)) || document.body || document.documentElement;
+  // Cards may be inserted outside the theme's initial dashboard region.
+  const scope = (kind === "courses" ? document.body : globalThis.UIPScannerCore.findMainContent(document)) || document.documentElement;
   if (!scope || typeof MutationObserver !== "function") {
     emitDiscoverySettlement(kind, requestId, "settled-empty", initial.scan);
     return { ok: true, settledImmediately: true };

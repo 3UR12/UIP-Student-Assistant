@@ -39,6 +39,7 @@ Run the dependency-free checks before loading an updated build:
 Get-ChildItem extension -Recurse -Filter *.js | ForEach-Object { node --check $_.FullName }
 node -e "JSON.parse(require('fs').readFileSync('extension/manifest.json')); console.log('manifest JSON valid')"
 node tests/core-smoke.test.js
+node tests/my-courses-discovery.test.js
 node tests/automation-engine.test.js
 node tests/workflow-service.test.js
 node tests/dashboard-ux.test.js

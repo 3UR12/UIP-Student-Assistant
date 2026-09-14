@@ -52,7 +52,9 @@
   };
 
   core.isExcludedRegion = function isExcludedRegion(element) {
-    return Boolean(core.closest(element, 'nav, aside, footer, #page-footer, #page-navbar, .sidebar, .drawer, [data-region="drawer"], [data-region="courseindex"], .block_navigation, .block_settings'));
+    // Course cards may live in an aside in the UIP theme. Exclude only regions
+    // Moodle identifies as navigation, drawers, or footer chrome.
+    return Boolean(core.closest(element, '#page-footer, #page-navbar, footer, .drawer, [data-region="drawer"], [data-region="courseindex"], .block_navigation, .block_settings, nav[aria-label], nav[role="navigation"]'));
   };
 
   core.isCompatibleScan = function isCompatibleScan(scan) {

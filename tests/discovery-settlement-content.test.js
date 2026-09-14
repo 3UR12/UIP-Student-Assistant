@@ -7,13 +7,13 @@ const vm = require("vm");
   const sent = [];
   let listener = null;
   let observer = null;
-  let currentScan = { scannerVersion: "0.5.0", pageType: "AREA_PERSONAL", courses: [], modules: [] };
+  let currentScan = { scannerVersion: "0.5.0", pageType: "MY_COURSES", courses: [], modules: [] };
   class FakeMutationObserver {
     constructor(callback) { this.callback = callback; observer = this; this.disconnected = false; }
     observe() {}
     disconnect() { this.disconnected = true; }
   }
-  const document = { location: { href: "https://moodle.uip.edu.pa/my/", pathname: "/my/" } };
+  const document = { location: { href: "https://moodle.uip.edu.pa/my/courses.php", pathname: "/my/courses.php" }, body: {} };
   const chrome = {
     runtime: {
       onMessage: { addListener(value) { listener = value; } },
@@ -40,7 +40,7 @@ const vm = require("vm");
   assert.ok(observer);
   assert.equal(sent.some((message) => message.type === "UIP_MOODLE_DISCOVERY_SETTLED"), false);
 
-  currentScan = { scannerVersion: "0.5.0", pageType: "AREA_PERSONAL", courses: [{ id: "8100" }], modules: [] };
+  currentScan = { scannerVersion: "0.5.0", pageType: "MY_COURSES", courses: [{ id: "8100" }], modules: [] };
   observer.callback([]);
   await new Promise((resolve) => setTimeout(resolve, 180));
   const settled = sent.find((message) => message.type === "UIP_MOODLE_DISCOVERY_SETTLED");

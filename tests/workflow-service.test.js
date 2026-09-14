@@ -51,10 +51,10 @@ const vm = require("vm");
 
   const discovery = await request({ type: "UIP_AUTOMATION_DISCOVER_COURSES" });
   assert.equal(discovery.ok, true);
-  assert.equal(updates.at(-1).url, "https://moodle.uip.edu.pa/my/");
+  assert.equal(updates.at(-1).url, "https://moodle.uip.edu.pa/my/courses.php");
   assert.equal(stored["uip.automation.discovery.v1"].courses.length, 0);
 
-  const ready = messageListener({ type: "UIP_MOODLE_PAGE_READY", scan: { pageType: "AREA_PERSONAL", courses: [{ id: "9001", name: "Curso", url: "https://moodle.uip.edu.pa/course/view.php?id=9001" }] } }, { tab: { id: 41 } }, () => {});
+  const ready = messageListener({ type: "UIP_MOODLE_PAGE_READY", scan: { pageType: "MY_COURSES", courses: [{ id: "9001", name: "Curso", url: "https://moodle.uip.edu.pa/course/view.php?id=9001" }] } }, { tab: { id: 41 } }, () => {});
   assert.equal(ready, false);
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.equal(stored["uip.automation.discovery.v1"].courses[0].id, "9001");

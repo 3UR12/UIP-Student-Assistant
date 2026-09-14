@@ -4,6 +4,7 @@
 
   core.detectPageType = function detectPageType(document) {
     const path = document.location.pathname || "";
+    if (/\/my\/courses\.php$/.test(path)) return "MY_COURSES";
     if (/\/my\/?$/.test(path)) return "AREA_PERSONAL";
     if (/\/course\/view\.php$/.test(path)) return "COURSE";
     if (/\/course\/section\.php$/.test(path)) return "SECTION";
@@ -54,11 +55,14 @@
   core.scanDocument = function scanDocument(document) {
     const errors = [];
     const pageType = core.detectPageType(document);
-    let courses = []; let modules = []; let activities = []; let feedback = []; let currentSection = null; let feedbackPage = null; let feedbackForm = null; let feedbackSubmission = null; let feedbackResult = null; let sectionNavigation = null; let pageNotices = [];
+    let courses = []; let courseDiscovery = null; let modules = []; let activities = []; let feedback = []; let currentSection = null; let feedbackPage = null; let feedbackForm = null; let feedbackSubmission = null; let feedbackResult = null; let sectionNavigation = null; let pageNotices = [];
     const mainScope = core.findMainContent(document);
     try { pageNotices = core.scanPageNotices ? core.scanPageNotices(document, mainScope, errors) : []; } catch (_) { core.captureError(errors, "page-notices"); }
     try {
-      if (pageType === "AREA_PERSONAL") courses = core.scanCourses(core.findDashboardScope(document), document, errors);
+      if (["AREA_PERSONAL", "MY_COURSES"].includes(pageType)) {
+        courses = core.scanCourses(core.findDashboardScope(document), document, errors);
+        courseDiscovery = courses.diagnostics ? { ...courses.diagnostics, sourcePage: pageType } : null;
+      }
     } catch (_) { core.captureError(errors, "courses"); }
     try {
       if (pageType === "COURSE" && mainScope) modules = core.scanModules(mainScope, document, errors);
@@ -79,7 +83,7 @@
       }
     } catch (_) { core.captureError(errors, "modules"); }
     try {
-      if (pageType === "AREA_PERSONAL") activities = core.scanActivities(core.findDashboardScope(document), document, errors);
+      if (["AREA_PERSONAL", "MY_COURSES"].includes(pageType)) activities = core.scanActivities(core.findDashboardScope(document), document, errors);
       if (pageType === "COURSE" && mainScope) activities = core.scanActivities(mainScope, document, errors);
       if (pageType === "FEEDBACK" && mainScope) {
         feedbackPage = core.feedbackPageContext(document, mainScope);
@@ -98,7 +102,7 @@
     return {
       scannerVersion: core.VERSION, pageType,
       sessionApparentlyNotStarted: core.isApparentlyLoggedOut(document),
-      course: core.currentCourse(document, pageType), currentSection, feedbackPage, feedbackForm, feedbackSubmission, feedbackResult, sectionNavigation, pageNotices, courses, modules, activities, feedback,
+      course: core.currentCourse(document, pageType), currentSection, feedbackPage, feedbackForm, feedbackSubmission, feedbackResult, sectionNavigation, pageNotices, courses, courseDiscovery, modules, activities, feedback,
       summary: {
         courses: courses.length, modules: modules.length, activities: activities.length, feedback: feedback.length,
         feedbackCompleted: completedFeedback,
