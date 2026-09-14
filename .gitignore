@@ -9,6 +9,9 @@ tmp/
 screenshots/
 test-data/private/
 
+# Packaged extension artifacts
+dist/
+
 # OS/editor files that can carry local state
 desktop.ini
 Thumbs.db
