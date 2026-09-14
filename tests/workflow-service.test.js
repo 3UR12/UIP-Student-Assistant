@@ -6,9 +6,11 @@ const vm = require("vm");
 (async () => {
   const stored = {};
   const updates = [];
+  const created = [];
   const alarms = [];
   const listeners = {};
   const tabs = new Map([[41, { id: 41, url: "https://moodle.uip.edu.pa/my/" }]]);
+  let nextTabId = 99;
   let messageListener = null;
   const listenerSlot = (name) => ({ addListener(value) { listeners[name] = value; } });
   const chrome = {
@@ -28,7 +30,7 @@ const vm = require("vm");
     tabs: {
       query(_query, callback) { callback(Array.from(tabs.values())); },
       get(id, callback) { callback(tabs.get(id)); },
-      create(properties, callback) { const tab = { id: 99, ...properties }; tabs.set(tab.id, tab); callback(tab); },
+      create(properties, callback) { const tab = { id: nextTabId++, ...properties }; tabs.set(tab.id, tab); created.push(tab); callback(tab); },
       update(id, properties, callback) { const tab = { ...(tabs.get(id) || { id }), ...properties, id }; tabs.set(id, tab); updates.push(tab); callback(tab); },
       sendMessage(_id, _message, callback) { callback(null); },
       onRemoved: listenerSlot("removed"),
@@ -51,10 +53,12 @@ const vm = require("vm");
 
   const discovery = await request({ type: "UIP_AUTOMATION_DISCOVER_COURSES" });
   assert.equal(discovery.ok, true);
-  assert.equal(updates.at(-1).url, "https://moodle.uip.edu.pa/my/courses.php");
+  assert.equal(created.at(-1).url, "https://moodle.uip.edu.pa/my/courses.php");
+  assert.equal(created.at(-1).id, 99, "an unrelated Moodle tab is never repurposed as the worker");
   assert.equal(stored["uip.automation.discovery.v1"].courses.length, 0);
+  const workerTabId = stored["uip.automation.discovery.v1"].workerTabId;
 
-  const ready = messageListener({ type: "UIP_MOODLE_PAGE_READY", scan: { pageType: "MY_COURSES", courses: [{ id: "9001", name: "Curso", url: "https://moodle.uip.edu.pa/course/view.php?id=9001" }] } }, { tab: { id: 41 } }, () => {});
+  const ready = messageListener({ type: "UIP_MOODLE_PAGE_READY", scan: { pageType: "MY_COURSES", courses: [{ id: "9001", name: "Curso", url: "https://moodle.uip.edu.pa/course/view.php?id=9001" }] } }, { tab: { id: workerTabId } }, () => {});
   assert.equal(ready, false);
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.equal(stored["uip.automation.discovery.v1"].courses[0].id, "9001");
@@ -62,7 +66,7 @@ const vm = require("vm");
   const selected = await request({ type: "UIP_AUTOMATION_SELECT_COURSE", course: { id: "9001", name: "forged", url: "https://moodle.uip.edu.pa/course/view.php?id=9001" } });
   assert.equal(selected.ok, true);
   assert.equal(updates.at(-1).url, "https://moodle.uip.edu.pa/course/view.php?id=9001");
-  messageListener({ type: "UIP_MOODLE_PAGE_READY", scan: { pageType: "COURSE", course: { id: "9001", name: "Curso", url: "https://moodle.uip.edu.pa/course/view.php?id=9001" }, modules: [{ id: "7000", name: null, url: "https://moodle.uip.edu.pa/course/section.php?id=7000", available: true, locked: false }, { id: "7001", name: "Semana 1", url: "https://moodle.uip.edu.pa/course/section.php?id=7001", available: true, locked: false }] } }, { tab: { id: 41 } }, () => {});
+  messageListener({ type: "UIP_MOODLE_PAGE_READY", scan: { pageType: "COURSE", course: { id: "9001", name: "Curso", url: "https://moodle.uip.edu.pa/course/view.php?id=9001" }, modules: [{ id: "7000", name: null, url: "https://moodle.uip.edu.pa/course/section.php?id=7000", available: true, locked: false }, { id: "7001", name: "Semana 1", url: "https://moodle.uip.edu.pa/course/section.php?id=7001", available: true, locked: false }] } }, { tab: { id: workerTabId } }, () => {});
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.equal(stored["uip.automation.discovery.v1"].modules.find((item) => item.id === "7000").selectable, false);
 
@@ -76,9 +80,9 @@ const vm = require("vm");
 
   // Page-ready and tab-update duplicates are coalesced while the background drives one transition.
   const moduleReady = { type: "UIP_MOODLE_PAGE_READY", scan: { pageType: "SECTION", course: { id: "9001" }, currentSection: { id: "7001" }, feedback: [{ id: "8801", name: "Encuesta", url: "https://moodle.uip.edu.pa/mod/feedback/view.php?id=8801", completionState: "incomplete", available: true }] } };
-  messageListener(moduleReady, { tab: { id: 41 } }, () => {});
-  messageListener(moduleReady, { tab: { id: 41 } }, () => {});
-  listeners.updated(41, { status: "complete" }, { id: 41, url: "https://moodle.uip.edu.pa/course/section.php?id=7001" });
+  messageListener(moduleReady, { tab: { id: workerTabId } }, () => {});
+  messageListener(moduleReady, { tab: { id: workerTabId } }, () => {});
+  listeners.updated(workerTabId, { status: "complete" }, { id: workerTabId, url: "https://moodle.uip.edu.pa/course/section.php?id=7001" });
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.equal(updates.filter((tab) => tab.url === "https://moodle.uip.edu.pa/mod/feedback/view.php?id=8801").length, 1);
   assert.equal(stored["uip.automation.v2"].phase, "OPEN_FEEDBACK");
@@ -86,20 +90,20 @@ const vm = require("vm");
   // Closing the persistent dashboard is observational only; the run keeps its state.
   listeners.action();
   await new Promise((resolve) => setTimeout(resolve, 0));
-  assert.equal(tabs.get(99).url, "chrome-extension://test/dashboard/dashboard.html");
-  tabs.delete(99);
-  await listeners.removed(99);
+  assert.equal(tabs.get(100).url, "chrome-extension://test/dashboard/dashboard.html");
+  tabs.delete(100);
+  await listeners.removed(100);
   assert.equal(stored["uip.automation.v2"].status, "RUNNING");
 
   // Closing the Moodle worker pauses without losing the plan; a fresh worker can resume it.
-  tabs.delete(41);
-  await listeners.removed(41);
+  tabs.delete(workerTabId);
+  await listeners.removed(workerTabId);
   assert.equal(stored["uip.automation.v2"].status, "PAUSED");
   assert.equal(stored["uip.automation.v2"].lastError.code, "worker-tab-closed");
   const reopened = await request({ type: "UIP_AUTOMATION_OPEN_MOODLE" });
   assert.equal(reopened.ok, true);
-  assert.equal(reopened.workerTabId, 99);
-  assert.equal(stored["uip.automation.v2"].workerTabId, 99);
+  assert.equal(reopened.workerTabId, 101);
+  assert.equal(stored["uip.automation.v2"].workerTabId, 101);
   assert.ok(stored["uip.automation.v2"].transition > 0);
   const resumed = await request({ type: "UIP_AUTOMATION_RESUME" });
   assert.equal(resumed.ok, true);

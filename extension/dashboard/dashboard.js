@@ -14,10 +14,12 @@
   let refreshQueued = false;
   let discoveryRequestRunning = false;
   let initialized = false;
+  let lastUiError = null;
   const send = (message) => new Promise((resolve) => chrome.runtime.sendMessage(message, (response) => resolve(chrome.runtime.lastError ? { ok: false, error: "background-unavailable" } : response || { ok: false, error: "background-unavailable" })));
   const setNotice = (value) => { ui.notice.textContent = value; };
   const escape = (value) => String(value || "").replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[character]);
   const selectedIds = () => Array.from(selectedModuleIds);
+  const visibleModules = (discovery) => (discovery && discovery.modules || []).filter((module) => module.name && !/^(general|secci[oó]n general|general section)$/i.test(module.name));
   const phaseLabel = (phase) => ({ OPEN_SECTION: "Abriendo módulo", WAIT_SECTION: "Esperando apertura del módulo", SCAN_SECTION: "Revisando módulo", OPEN_FEEDBACK: "Abriendo encuesta", WAIT_FEEDBACK: "Esperando apertura de la encuesta", SCAN_FEEDBACK: "Revisando encuesta", OPEN_FORM: "Abriendo formulario", WAIT_FORM: "Esperando apertura del formulario", PREFILL: "Aplicando valoración", VERIFY_FORM: "Verificando respuestas", SUBMIT: "Enviando Feedback", VERIFY_SUBMISSION: "Confirmando envío en Moodle", CONTINUE: "Continuando en Moodle", RECHECK_SECTION: "Verificando el módulo", NEXT_MODULE: "Preparando siguiente módulo" })[phase] || "Procesando recorrido";
   const elapsed = (timestamp) => Math.max(0, Math.floor((Date.now() - Number(timestamp || Date.now())) / 1000));
   const ago = (timestamp) => { const seconds = elapsed(timestamp); return seconds < 2 ? "ahora" : `hace ${seconds} s`; };
@@ -41,7 +43,7 @@
   }
   function renderModules() {
     const discovery = state.discovery || {};
-    const modules = (state.discovery.modules || []).filter((module) => module.name && !/^(general|secci[oó]n general|general section)$/i.test(module.name));
+    const modules = visibleModules(discovery);
     const available = modules.filter((module) => module.selectable === true);
     ui.fieldset.disabled = !modules.length;
     ui.modules.innerHTML = modules.map((module) => {
@@ -54,6 +56,7 @@
   }
   function renderSetup() {
     renderCourses(); renderModules();
+    const modules = visibleModules(state.discovery);
     const selected = selectedIds(); const hasRating = Boolean(ui.rating.value); const hasCourse = Boolean(ui.course.value); const ready = hasCourse && selected.length > 0 && hasRating;
     ui.prepare.textContent = `Procesar ${selected.length} módulo${selected.length === 1 ? "" : "s"}`;
     ui.prepare.disabled = !ready;
@@ -87,7 +90,7 @@
   function render() {
     const workflow = state.workflow;
     const discovery = state.discovery || {};
-    ui.technical.textContent = JSON.stringify({ status: workflow && workflow.status || "SETUP", phase: workflow && workflow.phase || "DISCOVERY", transition: workflow && workflow.transition || null, runId: workflow && workflow.runId && workflow.runId.slice(0, 18) || null, courseId: workflow && workflow.course && workflow.course.id || discovery.course && discovery.course.id || null, workerConnected: workflow && workflow.workerConnected || false, lastEvent: workflow && workflow.lastSafeEvent || null, stepStartedAt: workflow && workflow.stepStartedAt || null, watchdogRetries: workflow && workflow.waitRetries || 0, progress: workflow && workflow.progress || null, lastError: workflow && workflow.lastError || null, discoveryStatus: discovery.status || "idle", discoveryRequestId: discovery.requestId && discovery.requestId.slice(0, 18) || null, discoverySource: discovery.discoverySource || null, discoveryFallbackUsed: discovery.fallbackUsed === true, discoveryWorkerConnected: Number.isInteger(discovery.workerTabId), courseCount: (discovery.courses || []).length, courseDiscovery: discovery.courseDiscovery || null, moduleCount: (discovery.modules || []).length, discoveryStartedAt: discovery.startedAt || null, discoveryError: discovery.error || null }, null, 2);
+    ui.technical.textContent = JSON.stringify({ status: workflow && workflow.status || "SETUP", phase: workflow && workflow.phase || "DISCOVERY", transition: workflow && workflow.transition || null, runId: workflow && workflow.runId && workflow.runId.slice(0, 18) || null, courseId: workflow && workflow.course && workflow.course.id || discovery.course && discovery.course.id || null, workerConnected: workflow && workflow.workerConnected || false, lastEvent: workflow && workflow.lastSafeEvent || null, stepStartedAt: workflow && workflow.stepStartedAt || null, watchdogRetries: workflow && workflow.waitRetries || 0, progress: workflow && workflow.progress || null, lastError: workflow && workflow.lastError || null, discoveryStatus: discovery.status || "idle", discoveryRequestId: discovery.requestId && discovery.requestId.slice(0, 18) || null, discoverySource: discovery.discoverySource || null, discoveryFallbackUsed: discovery.fallbackUsed === true, discoveryWorkerConnected: Number.isInteger(discovery.workerTabId), courseCount: (discovery.courses || []).length, courseDiscovery: discovery.courseDiscovery || null, moduleCount: (discovery.modules || []).length, discoveryStartedAt: discovery.startedAt || null, discoveryError: discovery.error || null, uiError: lastUiError }, null, 2);
     if (!workflow || ["READY_TO_START", "CANCELLED"].includes(workflow.status)) { show(ui.setup); renderSetup(); return; }
     if (workflow.status === "DONE") { show(ui.done); renderDone(workflow); return; }
     if (["PAUSED", "LOGIN_REQUIRED", "ERROR"].includes(workflow.status)) {
@@ -106,6 +109,7 @@
     else if (discovery.status === "loading-courses") setNotice((discovery.courses || []).length ? "Actualizando materias…" : "Cargando materias desde Moodle…");
     else if (discovery.status === "loading-modules") setNotice("Cargando módulos desde Moodle…");
     else if (discovery.status === "courses-ready") setNotice((discovery.courses || []).length ? "Materias cargadas." : "No se encontraron materias disponibles.");
+    else if (discovery.status === "modules-ready") setNotice("Módulos cargados. Configura el recorrido.");
     else if (discovery.status === "login-required") setNotice("Necesitas iniciar sesión en Moodle.");
     else if (discovery.status === "error") setNotice("No se pudieron cargar las materias.");
     else setNotice("Conectando con Moodle…");
@@ -119,7 +123,7 @@
     try {
       const result = await send({ type: "UIP_AUTOMATION_GET_STATE" });
       if (!result.ok) { setNotice(statusMessage(result.error)); return; }
-      state = result; render(); renderNotice();
+      state = result; safeRender();
     } finally {
       refreshRunning = false;
       if (refreshQueued) { refreshQueued = false; refreshState(); }
@@ -151,15 +155,43 @@
     await refreshState();
     if (!state.workflow && state.discovery && state.discovery.status === "idle") await requestCourseDiscovery();
   }
+  function safeRender() {
+    try {
+      lastUiError = null;
+      render(); renderNotice();
+    } catch (error) {
+      lastUiError = error && error.name === "ReferenceError" ? "render-reference-error" : "render-failed";
+      setNotice("No se pudo actualizar la interfaz.");
+      ui.technical.textContent = JSON.stringify({ uiError: lastUiError, discoveryStatus: state.discovery && state.discovery.status || "idle" }, null, 2);
+    }
+  }
+  function openConfirmation() {
+    confirmationOpen = true;
+    ui.confirmSummary.textContent = `Materia: ${state.discovery.course && state.discovery.course.name || "Sin nombre"}. Módulos: ${selectedIds().length}. Valoración: ${ui.rating.value}.`;
+    safeRender();
+  }
+  async function startConfiguredRun() {
+    $("#start-run").disabled = true;
+    const result = await send({ type: "UIP_AUTOMATION_START", moduleIds: selectedIds(), preference: ui.rating.value });
+    if (!result.ok) setNotice(statusMessage(result.error));
+    confirmationOpen = false;
+    await refreshState();
+  }
+  function renderProgressClock() {
+    const workflow = state.workflow;
+    if (!workflow || !["RUNNING", "PAUSED"].includes(workflow.status)) return;
+    $("#last-activity").textContent = ago(workflow.lastActivityAt || workflow.updatedAt);
+    $("#step-elapsed").textContent = `${elapsed(workflow.stepStartedAt)} s`;
+  }
   $("#retry-courses").addEventListener("click", handleCourseAction);
   ui.course.addEventListener("change", async () => { const course = (state.discovery.courses || []).find((item) => item.id === ui.course.value); if (!course) return; selectedModuleIds = new Set(); confirmationOpen = false; setNotice("Abriendo materia y cargando módulos…"); await send({ type: "UIP_AUTOMATION_SELECT_COURSE", course }); });
-  ui.modules.addEventListener("change", () => { selectedModuleIds = new Set(Array.from(ui.modules.querySelectorAll("input:checked")).map((input) => input.value)); renderSetup(); });
-  ui.rating.addEventListener("change", renderSetup);
-  $("#select-all").addEventListener("click", () => { selectedModuleIds = new Set(Array.from(ui.modules.querySelectorAll("input:not(:disabled)")).map((input) => input.value)); renderSetup(); });
-  $("#clear-all").addEventListener("click", () => { selectedModuleIds = new Set(); renderSetup(); });
-  ui.prepare.addEventListener("click", () => { confirmationOpen = true; ui.confirmSummary.textContent = `Materia: ${state.discovery.course && state.discovery.course.name || "Sin nombre"}. Módulos: ${selectedIds().length}. Valoración: ${ui.rating.value}.`; renderSetup(); });
-  $("#dismiss-confirm").addEventListener("click", () => { confirmationOpen = false; renderSetup(); });
-  $("#start-run").addEventListener("click", async () => { $("#start-run").disabled = true; const result = await send({ type: "UIP_AUTOMATION_START", moduleIds: selectedIds(), preference: ui.rating.value }); if (!result.ok) setNotice(statusMessage(result.error)); confirmationOpen = false; await refreshState(); });
+  ui.modules.addEventListener("change", () => { selectedModuleIds = new Set(Array.from(ui.modules.querySelectorAll("input:checked")).map((input) => input.value)); safeRender(); });
+  ui.rating.addEventListener("change", safeRender);
+  $("#select-all").addEventListener("click", () => { selectedModuleIds = new Set(Array.from(ui.modules.querySelectorAll("input:not(:disabled)")).map((input) => input.value)); safeRender(); });
+  $("#clear-all").addEventListener("click", () => { selectedModuleIds = new Set(); safeRender(); });
+  ui.prepare.addEventListener("click", openConfirmation);
+  $("#dismiss-confirm").addEventListener("click", () => { confirmationOpen = false; safeRender(); });
+  $("#start-run").addEventListener("click", startConfiguredRun);
   $("#pause-run").addEventListener("click", async () => { await send({ type: "UIP_AUTOMATION_PAUSE" }); await refreshState(); });
   $("#cancel-run").addEventListener("click", async () => { await send({ type: "UIP_AUTOMATION_CANCEL" }); await refreshState(); });
   $("#cancel-paused").addEventListener("click", async () => { await send({ type: "UIP_AUTOMATION_CANCEL" }); await refreshState(); });
@@ -168,6 +200,7 @@
   $("#open-moodle").addEventListener("click", async () => { await send({ type: "UIP_AUTOMATION_OPEN_MOODLE" }); });
   $("#new-run").addEventListener("click", async () => { selectedModuleIds = new Set(); await send({ type: "UIP_AUTOMATION_NEW_RUN" }); await refreshState(); });
   chrome.runtime.onMessage.addListener((message) => { if (message && message.type === "UIP_AUTOMATION_STATE_CHANGED") refreshState(); });
-  setInterval(() => { render(); renderNotice(); }, 1500);
+  if (globalThis.__UIP_DASHBOARD_TEST_HOOK__) Object.assign(globalThis.__UIP_DASHBOARD_TEST_HOOK__, { setState(value) { state = value; }, setSelectedModuleIds(value) { selectedModuleIds = new Set(value); }, renderSetup: safeRender, openConfirmation, startConfiguredRun, snapshot() { return { confirmationOpen, lastUiError, selectedModuleIds: selectedIds() }; } });
+  setInterval(renderProgressClock, 1500);
   initializeDashboard();
 })();

@@ -127,8 +127,13 @@ async function ensureWorker(preferredTabId, initialUrl = MOODLE_HOME) {
     const tab = await tabsGet(running.workflow.workerTabId);
     if (tab && isMoodleUrl(tab.url)) return tab;
   }
-  const moodleTabs = await tabsQuery({ url: `${MOODLE_ORIGIN}/*` });
-  if (moodleTabs.length) return moodleTabs[0];
+  const discovery = await loadDiscovery();
+  if (discovery.ok && discovery.discovery && Number.isInteger(discovery.discovery.workerTabId)) {
+    const tab = await tabsGet(discovery.discovery.workerTabId);
+    if (tab && isMoodleUrl(tab.url)) return tab;
+  }
+  // Never redirect an arbitrary Moodle tab the student is using. A worker is
+  // either one we already persisted or a dedicated tab owned by this flow.
   return tabsCreate({ url: initialUrl, active: true });
 }
 async function armWatchdog(workflow) {
@@ -180,12 +185,27 @@ async function useDashboardCourseFallback(discovery, navigate) {
   await persistDiscovery({ ...switched.discovery, status: "error", startedAt: null, error: "discovery-navigation-failed" });
   return { ok: false, error: "discovery-navigation-failed" };
 }
+async function resumeCourseDiscoveryAfterLogin(discovery, tabId, scan) {
+  const requestId = `courses-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  const loading = await persistDiscovery({ ...discovery, status: "loading-courses", requestId, workerTabId: tabId, settlement: null, discoverySource: "my-courses", fallbackUsed: false, courseDiscovery: null, startedAt: Date.now(), error: null });
+  if (!loading.ok) return loading;
+  if (scan && scan.pageType === "MY_COURSES") {
+    await handleDiscovery(tabId, scan);
+    return loading;
+  }
+  if (!await tabsUpdate(tabId, { url: MOODLE_MY_COURSES })) {
+    await persistDiscovery({ ...loading.discovery, status: "error", startedAt: null, error: "discovery-navigation-failed" });
+    return { ok: false, error: "discovery-navigation-failed" };
+  }
+  return loading;
+}
 async function handleDiscovery(tabId, scan) {
   const current = await loadDiscovery();
   if (!current.ok) return;
   const discovery = current.discovery;
   if (discovery.workerTabId !== tabId) return;
   if (scan.sessionApparentlyNotStarted === true) { await persistDiscovery({ ...discovery, status: "login-required", settlement: null, startedAt: null, error: "login-required" }); return; }
+  if (discovery.status === "login-required") { await resumeCourseDiscoveryAfterLogin(discovery, tabId, scan); return; }
   if (discovery.status === "loading-courses") {
     const expectedPage = coursePageFor(discovery);
     if (scan.pageType !== expectedPage) {
@@ -351,7 +371,7 @@ async function openDashboard() {
   dashboardTabId = tab && tab.id || null;
 }
 async function openMoodleWorker() {
-  const tab = await ensureWorker();
+  const tab = await ensureWorker(null, MOODLE_MY_COURSES);
   if (!tab || !Number.isInteger(tab.id)) return { ok: false, error: "worker-unavailable" };
   await tabsUpdate(tab.id, { active: true });
   const loaded = await loadWorkflow();

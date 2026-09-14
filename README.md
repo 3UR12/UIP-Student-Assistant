@@ -43,6 +43,7 @@ node tests/my-courses-discovery.test.js
 node tests/automation-engine.test.js
 node tests/workflow-service.test.js
 node tests/dashboard-ux.test.js
+node tests/dashboard-modules-ready.test.js
 node tests/automation-e2e.test.js --repeat=20
 node tests/lifecycle-idempotency.test.js
 node tests/recovery-service-worker.test.js

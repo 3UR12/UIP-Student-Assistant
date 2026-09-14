@@ -14,7 +14,7 @@ function harness(initialDiscovery, options = {}) {
   const alarms = [];
   const workerMessages = [];
   const listeners = {};
-  const tabs = new Map(options.noWorker ? [] : [[41, { id: 41, url: `${origin}/my/` }]]);
+  const tabs = new Map(options.noWorker ? [] : [[41, { id: 41, url: options.userUrl || `${origin}/my/` }]]);
   let messageListener = null;
   const listenerSlot = (name) => ({ addListener(listener) { listeners[name] = listener; } });
   const chrome = {
@@ -42,13 +42,14 @@ function harness(initialDiscovery, options = {}) {
   vm.createContext(context);
   vm.runInContext(fs.readFileSync("extension/background/workflow-service.js", "utf8"), context, { filename: "workflow-service.js" });
   return {
-    stored, updates, created, alarms, workerMessages, listeners,
+    stored, tabs, updates, created, alarms, workerMessages, listeners,
     request(message) { return new Promise((resolve) => { assert.equal(messageListener(message, {}, resolve), true, `${message.type} must retain response channel`); }); },
-    page(scan) { assert.equal(messageListener({ type: "UIP_MOODLE_PAGE_READY", scan }, { tab: { id: 41 } }, () => {}), false); },
-    settled(kind, requestId, reason, scan, tabId = 41) { assert.equal(messageListener({ type: "UIP_MOODLE_DISCOVERY_SETTLED", kind, requestId, reason, scan }, { tab: { id: tabId } }, () => {}), false); },
+    workerTabId() { return stored["uip.automation.discovery.v1"] && stored["uip.automation.discovery.v1"].workerTabId || 41; },
+    page(scan, tabId) { assert.equal(messageListener({ type: "UIP_MOODLE_PAGE_READY", scan }, { tab: { id: Number.isInteger(tabId) ? tabId : this.workerTabId() } }, () => {}), false); },
+    settled(kind, requestId, reason, scan, tabId) { assert.equal(messageListener({ type: "UIP_MOODLE_DISCOVERY_SETTLED", kind, requestId, reason, scan }, { tab: { id: Number.isInteger(tabId) ? tabId : this.workerTabId() } }, () => {}), false); },
     async settle() { for (let index = 0; index < 8; index += 1) await tick(); },
     homeNavigations() { return updates.filter((tab) => tab.url === `${origin}/my/`).length; },
-    primaryNavigations() { return updates.filter((tab) => tab.url === `${origin}/my/courses.php`).length; }
+    primaryNavigations() { return updates.concat(created).filter((tab) => tab.url === `${origin}/my/courses.php`).length; }
   };
 }
 
@@ -58,8 +59,20 @@ async function newWorkerPrimaryScenario() {
   assert.equal(result.ok, true);
   assert.equal(test.created.length, 1);
   assert.equal(test.created[0].url, `${origin}/my/courses.php`);
-  assert.equal(test.primaryNavigations(), 0, "a newly created primary tab must not be updated a second time");
+  assert.equal(test.primaryNavigations(), 1, "a newly created worker opens My Courses exactly once");
   assert.equal(test.homeNavigations(), 0);
+}
+
+async function automaticNavigationFromAnyMoodlePageScenario() {
+  for (const userUrl of [`${origin}/course/view.php?id=8199`, `${origin}/mod/feedback/view.php?id=8801`]) {
+    const test = harness(null, { userUrl });
+    const result = await test.request({ type: "UIP_AUTOMATION_DISCOVER_COURSES" });
+    assert.equal(result.ok, true);
+    assert.equal(test.created.length, 1, "an arbitrary user Moodle page gets a dedicated worker");
+    assert.equal(test.created[0].url, `${origin}/my/courses.php`);
+    assert.equal(test.primaryNavigations(), 1);
+    assert.equal(test.tabs.get(41).url, userUrl, "the user's Moodle tab remains on its original page");
+  }
 }
 
 async function slowMoodleScenario() {
@@ -78,7 +91,8 @@ async function slowMoodleScenario() {
   }
   assert.equal(test.primaryNavigations(), 1, "read-only dashboard refreshes must not restart discovery");
 
-  test.listeners.updated(41, { status: "complete" }, { id: 41, url: `${origin}/my/courses.php` });
+  const workerTabId = test.workerTabId();
+  test.listeners.updated(workerTabId, { status: "complete" }, { id: workerTabId, url: `${origin}/my/courses.php` });
   test.page({ pageType: "MY_COURSES", courses: [] });
   await test.settle();
   assert.equal(test.stored["uip.automation.discovery.v1"].status, "loading-courses", "an early empty dashboard must not become a terminal result");
@@ -123,6 +137,12 @@ async function terminalDiscoveryScenarios() {
   await login.settle();
   assert.equal(login.stored["uip.automation.discovery.v1"].status, "login-required");
   assert.equal(login.primaryNavigations(), 1);
+
+  // Once the normal Moodle login is complete, discovery resumes by itself.
+  login.page({ pageType: "MY_COURSES", courses: courses(5) });
+  await login.settle();
+  assert.equal(login.stored["uip.automation.discovery.v1"].status, "courses-ready");
+  assert.equal(login.stored["uip.automation.discovery.v1"].courses.length, 5);
 
   const zero = harness();
   await zero.request({ type: "UIP_AUTOMATION_DISCOVER_COURSES" });
@@ -191,6 +211,7 @@ async function modulesAndStaleSettlementScenarios() {
   assert.ok(Number.isInteger(repeat) && repeat >= 1 && repeat <= 100, "--repeat must be an integer between 1 and 100");
   for (let index = 0; index < repeat; index += 1) await slowMoodleScenario();
   await newWorkerPrimaryScenario();
+  await automaticNavigationFromAnyMoodlePageScenario();
   await staleRefreshScenario();
   await terminalDiscoveryScenarios();
   await modulesAndStaleSettlementScenarios();

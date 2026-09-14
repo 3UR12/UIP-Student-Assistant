@@ -39,7 +39,12 @@ assert.ok(script.includes("No se encontraron materias disponibles."));
 assert.ok(script.includes("No se pudieron cargar las materias."));
 assert.ok(script.includes('"Reintentar"'));
 assert.ok(script.includes("Cargando módulos de la materia…"));
+assert.ok(script.includes("Módulos cargados. Configura el recorrido."));
 assert.ok(script.includes("No se encontraron módulos disponibles."));
+assert.ok(script.includes("visibleModules"));
+assert.ok(script.includes("safeRender"));
+assert.ok(script.includes("No se pudo actualizar la interfaz."));
+assert.ok(script.includes("renderProgressClock"));
 assert.ok(script.includes("discoveryStatus"));
 assert.ok(script.includes("discoveryRequestId"));
 assert.ok(script.includes("discoverySource"));
@@ -48,9 +53,12 @@ assert.ok(script.includes("courseDiscovery"));
 const refreshStateSource = script.slice(script.indexOf("async function refreshState"), script.indexOf("async function requestCourseDiscovery"));
 assert.equal(refreshStateSource.includes("UIP_AUTOMATION_DISCOVER_COURSES"), false, "state refresh must remain read-only");
 assert.equal(script.includes("setInterval(refresh"), false, "timer must not poll the background");
+assert.equal(script.includes("setInterval(() => { render(); renderNotice();"), false, "timer must not rebuild setup controls");
 
 // The layout remains responsive and status changes remain visible to assistive tech.
 assert.ok(html.includes('aria-live="polite"'));
+assert.ok(html.includes("Las materias se cargan automáticamente desde Moodle."));
+assert.equal(html.includes("Área personal de Moodle"), false);
 assert.ok(css.includes('@media'));
 assert.ok(!html.includes('popup'));
 console.log("dashboard UX tests passed");
