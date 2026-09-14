@@ -1,8 +1,6 @@
 # Changelog
 
-Los cambios importantes de UIP Student Assistant se documentan en este archivo.
-
-El proyecto continúa en fase beta y todavía no sigue un esquema formal de releases públicas.
+Este archivo resume los cambios funcionales relevantes de UIP Student Assistant.
 
 ---
 
@@ -14,42 +12,42 @@ El proyecto continúa en fase beta y todavía no sigue un esquema formal de rele
 - Descubrimiento automático de materias desde Moodle My Courses con fallback controlado.
 - Descubrimiento automático de módulos.
 - Worker Moodle dedicado para no interrumpir pestañas personales del usuario.
-- Máquina de estados automática para recorrer módulos y Feedback sin pasos manuales intermedios.
+- Máquina de estados para recorrer módulos y Feedback sin pasos manuales intermedios.
 - Selección de materia, módulos y valoración con una única confirmación antes de comenzar.
 - Prefill automático de respuestas compatibles.
 - Verificación previa al submit y verificación post-submit.
 - Continue automático después de un envío confirmado.
 - Manejo de múltiples Feedback por módulo.
-- Manejo de módulos bloqueados/no disponibles.
+- Manejo de módulos bloqueados o no disponibles.
 - Pausa, reanudación, cancelación y recuperación tras login.
 - Watchdog y navegación acotada para evitar loops infinitos.
 - Historial de actividad y progreso visible en el dashboard.
-- Soporte para iniciar un segundo recorrido después de completar el primero.
-- Packaging local mediante PowerShell.
-- Workflow manual de GitHub Actions para generar el ZIP de la extensión.
+- Soporte para iniciar recorridos consecutivos.
+- Empaquetado local mediante PowerShell.
+- Workflow de GitHub Actions para generar el paquete de la extensión.
 
-### Correcciones relevantes durante UAT
+### Correcciones principales
 
 - Eliminado el flujo manual de scan → navegación → scan de v0.4.
 - Persistencia del workflow movida al background service worker.
-- Corregida pérdida de workflow durante la hidratación del dashboard.
+- Corregida la pérdida de workflow durante la hidratación del dashboard.
 - Corregidos scans descartados durante transiciones concurrentes.
-- Corregida recuperación del watchdog tras restart del service worker.
-- Corregido rebind de la pestaña worker después de cierre.
-- Corregido manejo de redirect `SECTION → COURSE` con módulos no disponibles.
-- Corregida deduplicación entre transiciones distintas.
-- Corregido discovery que reiniciaba `/my/` durante polling del dashboard.
-- Añadido settlement del DOM con `MutationObserver` para contenido cargado de forma asíncrona.
+- Corregida la recuperación del watchdog tras reiniciar el service worker.
+- Corregido el rebind de la pestaña worker después de su cierre.
+- Corregido el manejo de redirects `SECTION → COURSE` con módulos no disponibles.
+- Corregida la deduplicación entre transiciones distintas.
+- Corregido el discovery que reiniciaba `/my/` durante el refresco del dashboard.
+- Añadido settlement del DOM con `MutationObserver` para contenido asíncrono.
 - Descubrimiento de materias movido a `/my/courses.php` como fuente primaria.
-- Corregido `ReferenceError` del dashboard después de `modules-ready`.
-- Corregido estado `disabled` persistente de `Ejecutar recorrido` entre recorridos consecutivos.
+- Corregido el `ReferenceError` del dashboard después de `modules-ready`.
+- Corregido el estado `disabled` persistente de **Ejecutar recorrido** entre recorridos consecutivos.
 
 ### Validación
 
 - Scanner y discovery cubiertos por pruebas de regresión.
 - E2E automatizado repetido.
-- Stress de event pump, redirects y discovery.
-- UAT autenticada real en Moodle UIP con recorrido funcional.
+- Pruebas de stress para event pump, redirects y discovery.
+- Validación autenticada en Moodle UIP con recorrido funcional.
 
 ---
 
