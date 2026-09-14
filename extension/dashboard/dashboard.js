@@ -13,6 +13,7 @@
   let refreshRunning = false;
   let refreshQueued = false;
   let discoveryRequestRunning = false;
+  let startRequestRunning = false;
   let initialized = false;
   let lastUiError = null;
   const send = (message) => new Promise((resolve) => chrome.runtime.sendMessage(message, (response) => resolve(chrome.runtime.lastError ? { ok: false, error: "background-unavailable" } : response || { ok: false, error: "background-unavailable" })));
@@ -57,11 +58,18 @@
   function renderSetup() {
     renderCourses(); renderModules();
     const modules = visibleModules(state.discovery);
-    const selected = selectedIds(); const hasRating = Boolean(ui.rating.value); const hasCourse = Boolean(ui.course.value); const ready = hasCourse && selected.length > 0 && hasRating;
+    const selected = selectedIds(); const hasRating = Boolean(ui.rating.value); const hasCourse = Boolean(ui.course.value); const ready = state.discovery.status === "modules-ready" && hasCourse && selected.length > 0 && hasRating;
     ui.prepare.textContent = `Procesar ${selected.length} módulo${selected.length === 1 ? "" : "s"}`;
     ui.prepare.disabled = !ready;
     ui.setupReason.textContent = !hasCourse ? "Selecciona una materia para cargar sus módulos." : state.discovery.status === "loading-modules" ? "Cargando módulos de la materia…" : state.discovery.status === "modules-ready" && !modules.length ? "No se encontraron módulos disponibles." : selected.length === 0 ? "Selecciona al menos un módulo disponible." : !hasRating ? "Selecciona una valoración para continuar." : "El recorrido usará una sola confirmación antes de comenzar.";
+    renderConfirmation();
+  }
+  function canStartConfiguredRun() {
+    return confirmationOpen && state.discovery.status === "modules-ready" && selectedModuleIds.size > 0 && Boolean(ui.rating.value) && Boolean(state.discovery.course) && !startRequestRunning;
+  }
+  function renderConfirmation() {
     ui.confirmation.classList.toggle("hidden", !confirmationOpen);
+    $("#start-run").disabled = !canStartConfiguredRun();
   }
   function renderProgress(workflow) {
     const progress = workflow.progress || {}; const total = progress.total || 0; const reviewed = progress.reviewed || 0;
@@ -91,9 +99,10 @@
     const workflow = state.workflow;
     const discovery = state.discovery || {};
     ui.technical.textContent = JSON.stringify({ status: workflow && workflow.status || "SETUP", phase: workflow && workflow.phase || "DISCOVERY", transition: workflow && workflow.transition || null, runId: workflow && workflow.runId && workflow.runId.slice(0, 18) || null, courseId: workflow && workflow.course && workflow.course.id || discovery.course && discovery.course.id || null, workerConnected: workflow && workflow.workerConnected || false, lastEvent: workflow && workflow.lastSafeEvent || null, stepStartedAt: workflow && workflow.stepStartedAt || null, watchdogRetries: workflow && workflow.waitRetries || 0, progress: workflow && workflow.progress || null, lastError: workflow && workflow.lastError || null, discoveryStatus: discovery.status || "idle", discoveryRequestId: discovery.requestId && discovery.requestId.slice(0, 18) || null, discoverySource: discovery.discoverySource || null, discoveryFallbackUsed: discovery.fallbackUsed === true, discoveryWorkerConnected: Number.isInteger(discovery.workerTabId), courseCount: (discovery.courses || []).length, courseDiscovery: discovery.courseDiscovery || null, moduleCount: (discovery.modules || []).length, discoveryStartedAt: discovery.startedAt || null, discoveryError: discovery.error || null, uiError: lastUiError }, null, 2);
-    if (!workflow || ["READY_TO_START", "CANCELLED"].includes(workflow.status)) { show(ui.setup); renderSetup(); return; }
-    if (workflow.status === "DONE") { show(ui.done); renderDone(workflow); return; }
+    if (!workflow || ["READY_TO_START", "CANCELLED"].includes(workflow.status)) { if (workflow && workflow.status === "CANCELLED") { confirmationOpen = false; startRequestRunning = false; } show(ui.setup); renderSetup(); return; }
+    if (workflow.status === "DONE") { confirmationOpen = false; startRequestRunning = false; show(ui.done); renderDone(workflow); return; }
     if (["PAUSED", "LOGIN_REQUIRED", "ERROR"].includes(workflow.status)) {
+      if (workflow.status === "ERROR") { confirmationOpen = false; startRequestRunning = false; }
       show(ui.paused); $("#paused-title").textContent = workflow.status === "LOGIN_REQUIRED" ? "Necesitas iniciar sesión" : workflow.status === "ERROR" ? "El recorrido necesita atención" : "El recorrido está pausado";
       $("#paused-reason").textContent = workflow.lastError && workflow.lastError.message || workflow.semantic || "El recorrido se detuvo de forma segura.";
       $("#resume-run").classList.toggle("hidden", workflow.status === "ERROR");
@@ -171,10 +180,28 @@
     safeRender();
   }
   async function startConfiguredRun() {
-    $("#start-run").disabled = true;
-    const result = await send({ type: "UIP_AUTOMATION_START", moduleIds: selectedIds(), preference: ui.rating.value });
-    if (!result.ok) setNotice(statusMessage(result.error));
+    if (!canStartConfiguredRun()) return;
+    startRequestRunning = true;
+    safeRender();
+    try {
+      const result = await send({ type: "UIP_AUTOMATION_START", moduleIds: selectedIds(), preference: ui.rating.value });
+      if (result.ok) confirmationOpen = false;
+      else setNotice(statusMessage(result.error));
+      await refreshState();
+    } finally {
+      startRequestRunning = false;
+      safeRender();
+    }
+  }
+  function resetTransientSetup() {
+    selectedModuleIds = new Set();
     confirmationOpen = false;
+    startRequestRunning = false;
+    lastUiError = null;
+  }
+  async function beginNewRun() {
+    resetTransientSetup();
+    await send({ type: "UIP_AUTOMATION_NEW_RUN" });
     await refreshState();
   }
   function renderProgressClock() {
@@ -196,11 +223,11 @@
   $("#cancel-run").addEventListener("click", async () => { await send({ type: "UIP_AUTOMATION_CANCEL" }); await refreshState(); });
   $("#cancel-paused").addEventListener("click", async () => { await send({ type: "UIP_AUTOMATION_CANCEL" }); await refreshState(); });
   $("#resume-run").addEventListener("click", async () => { await send({ type: "UIP_AUTOMATION_RESUME" }); await refreshState(); });
-  $("#restart-run").addEventListener("click", async () => { selectedModuleIds = new Set(); await send({ type: "UIP_AUTOMATION_NEW_RUN" }); await refreshState(); });
+  $("#restart-run").addEventListener("click", beginNewRun);
   $("#open-moodle").addEventListener("click", async () => { await send({ type: "UIP_AUTOMATION_OPEN_MOODLE" }); });
-  $("#new-run").addEventListener("click", async () => { selectedModuleIds = new Set(); await send({ type: "UIP_AUTOMATION_NEW_RUN" }); await refreshState(); });
+  $("#new-run").addEventListener("click", beginNewRun);
   chrome.runtime.onMessage.addListener((message) => { if (message && message.type === "UIP_AUTOMATION_STATE_CHANGED") refreshState(); });
-  if (globalThis.__UIP_DASHBOARD_TEST_HOOK__) Object.assign(globalThis.__UIP_DASHBOARD_TEST_HOOK__, { setState(value) { state = value; }, setSelectedModuleIds(value) { selectedModuleIds = new Set(value); }, renderSetup: safeRender, openConfirmation, startConfiguredRun, snapshot() { return { confirmationOpen, lastUiError, selectedModuleIds: selectedIds() }; } });
+  if (globalThis.__UIP_DASHBOARD_TEST_HOOK__) Object.assign(globalThis.__UIP_DASHBOARD_TEST_HOOK__, { setState(value) { state = value; }, setSelectedModuleIds(value) { selectedModuleIds = new Set(value); }, renderSetup: safeRender, openConfirmation, startConfiguredRun, beginNewRun, snapshot() { return { confirmationOpen, lastUiError, selectedModuleIds: selectedIds(), startRequestRunning }; } });
   setInterval(renderProgressClock, 1500);
   initializeDashboard();
 })();
