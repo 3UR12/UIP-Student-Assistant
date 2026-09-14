@@ -1,44 +1,46 @@
 # Instalación de UIP Student Assistant
 
-UIP Student Assistant se distribuye actualmente como una extensión **unpacked** para Microsoft Edge y Google Chrome.
+UIP Student Assistant es una extensión Manifest V3 compatible con Microsoft Edge y Google Chrome.
 
-No está publicada todavía en Chrome Web Store ni Microsoft Edge Add-ons.
+Actualmente se instala manualmente mediante **Cargar descomprimida / Load unpacked**.
 
 ---
 
 ## Requisitos
 
 - Microsoft Edge o Google Chrome basado en Chromium.
-- Acceso normal a Moodle UIP.
-- Una sesión iniciada en `https://moodle.uip.edu.pa/`.
-- La carpeta de la extensión o el ZIP generado desde este repositorio.
+- Acceso a Moodle UIP.
+- Una sesión activa en `https://moodle.uip.edu.pa/`.
+- El repositorio descargado o clonado localmente.
 
-La extensión no necesita Python, Node.js, Docker ni ningún backend para ejecutarse en el navegador.
+La extensión no requiere Python, Node.js, Docker, un backend ni servicios externos para ejecutarse en el navegador.
 
 ---
 
-## Opción A — Instalar desde un ZIP compartido
+## Descargar desde GitHub
 
-Esta es la opción recomendada para compañeros que sólo quieren usar la extensión.
+### Opción 1 — Download ZIP
 
-1. Recibe `UIP-Student-Assistant-v0.5.0.zip`.
-2. Extrae el ZIP en una carpeta permanente, por ejemplo:
-
-```text
-C:\Users\TU_USUARIO\Documents\UIP-Student-Assistant-v0.5.0\
-```
-
-3. Comprueba que dentro de esa carpeta exista directamente:
+1. Abre el repositorio en GitHub.
+2. Pulsa **Code**.
+3. Selecciona **Download ZIP**.
+4. Extrae el archivo descargado.
+5. Localiza la carpeta:
 
 ```text
-manifest.json
-background/
-content/
-core/
-dashboard/
+UIP-Student-Assistant/extension/
 ```
 
-No selecciones una carpeta superior que sólo contenga otra carpeta con esos archivos.
+Esa es la carpeta que debe cargarse en el navegador. `manifest.json` debe quedar directamente dentro de ella.
+
+### Opción 2 — Git
+
+```powershell
+git clone https://github.com/3UR12/UIP-Student-Assistant.git
+cd UIP-Student-Assistant
+```
+
+La extensión se encuentra en `extension/`.
 
 ---
 
@@ -52,9 +54,9 @@ edge://extensions
 
 2. Activa **Modo para desarrolladores**.
 3. Pulsa **Cargar descomprimida**.
-4. Selecciona la carpeta extraída donde se encuentra `manifest.json`.
-5. UIP Student Assistant aparecerá en la lista de extensiones.
-6. Opcional: abre el menú de extensiones y fija UIP Student Assistant en la barra del navegador.
+4. Selecciona la carpeta `extension/`.
+5. Verifica que **UIP Student Assistant** aparezca habilitada.
+6. Opcionalmente, fija la extensión en la barra del navegador.
 
 ---
 
@@ -66,96 +68,92 @@ edge://extensions
 chrome://extensions
 ```
 
-2. Activa **Modo de desarrollador / Developer mode**.
-3. Pulsa **Cargar descomprimida / Load unpacked**.
-4. Selecciona la carpeta extraída donde se encuentra `manifest.json`.
-5. Opcional: fija la extensión en la barra del navegador.
+2. Activa **Developer mode / Modo de desarrollador**.
+3. Pulsa **Load unpacked / Cargar descomprimida**.
+4. Selecciona la carpeta `extension/`.
+5. Verifica que **UIP Student Assistant** aparezca habilitada.
+6. Opcionalmente, fija la extensión en la barra del navegador.
 
 ---
 
 ## Primer uso
 
-1. Inicia sesión en Moodle UIP normalmente.
-2. Pulsa el icono de **UIP Student Assistant**.
-3. La extensión abrirá su dashboard y preparará una pestaña Moodle dedicada para trabajar.
-4. Espera a que aparezcan tus materias.
-5. Selecciona una materia.
-6. Espera a que aparezcan sus módulos.
-7. Selecciona los módulos que deseas procesar.
-8. Selecciona una valoración.
-9. Pulsa **Procesar N módulos**.
-10. Revisa la confirmación y pulsa **Ejecutar recorrido**.
+1. Inicia sesión normalmente en Moodle UIP.
+2. Abre **UIP Student Assistant** desde el menú de extensiones.
+3. Espera a que se carguen las materias disponibles.
+4. Selecciona una materia.
+5. Espera a que se carguen sus módulos.
+6. Selecciona los módulos que deseas procesar.
+7. Selecciona una valoración.
+8. Pulsa **Procesar N módulos**.
+9. Revisa la confirmación.
+10. Pulsa **Ejecutar recorrido**.
 
-A partir de la confirmación, el recorrido debe continuar automáticamente hasta terminar o encontrar un caso que requiera revisión manual.
-
----
-
-## No necesitas preparar Moodle manualmente
-
-No es necesario colocarte previamente en:
-
-- Área personal;
-- Mis cursos;
-- una materia;
-- un módulo;
-- una encuesta.
-
-UIP Student Assistant utiliza una pestaña Moodle dedicada y navega automáticamente hacia las rutas necesarias.
+La extensión administra una pestaña Moodle dedicada y navega automáticamente por las rutas necesarias. No es necesario abrir manualmente Área personal, Mis cursos, una materia, un módulo o una encuesta antes de iniciar.
 
 ---
 
 ## Actualizar la extensión
 
-Cuando recibas una versión nueva:
+### Si utilizas Git
 
-1. Reemplaza la carpeta anterior por la nueva carpeta extraída.
-2. Abre `edge://extensions` o `chrome://extensions`.
-3. Pulsa **Volver a cargar / Reload** en UIP Student Assistant.
+```powershell
+git pull
+```
 
-Si cambiaste la ubicación de la carpeta por completo y el navegador reporta un error, elimina la extensión y vuelve a cargar la nueva carpeta como unpacked.
+Después abre `edge://extensions` o `chrome://extensions` y pulsa **Volver a cargar / Reload** en UIP Student Assistant.
+
+### Si utilizas Download ZIP
+
+1. Descarga la versión nueva del repositorio.
+2. Extrae el contenido.
+3. Sustituye la carpeta local anterior.
+4. Pulsa **Volver a cargar / Reload** en la página de extensiones.
+
+Si cambia la ubicación de la carpeta local y el navegador deja de reconocerla, elimina la extensión y vuelve a cargar `extension/` mediante **Cargar descomprimida**.
 
 ---
 
 ## Desinstalar
 
-En `edge://extensions` o `chrome://extensions` pulsa **Quitar / Remove**.
+En `edge://extensions` o `chrome://extensions`, pulsa **Quitar / Remove**.
 
-El estado de los recorridos se almacena únicamente en `chrome.storage.session`, por lo que no existe una base de datos externa ni una cuenta independiente que borrar.
+El estado de ejecución se almacena en `chrome.storage.session`; no existe una cuenta independiente ni una base de datos externa asociada a la extensión.
 
 ---
 
-## Problemas comunes
+## Solución de problemas
 
 ### No aparecen materias
 
-- Confirma que tu sesión de Moodle sigue activa.
-- Espera a que finalice el estado de carga.
+- Confirma que la sesión de Moodle continúe activa.
+- Espera a que finalice el proceso de carga.
 - Usa **Actualizar materias** una sola vez si es necesario.
-- Si aparece **Necesitas iniciar sesión en Moodle**, pulsa **Abrir Moodle**, inicia sesión normalmente y vuelve al dashboard.
+- Si aparece **Necesitas iniciar sesión en Moodle**, abre Moodle, inicia sesión y vuelve al dashboard.
 
 ### No aparecen módulos
 
 - Espera a que la materia termine de cargar.
-- Algunos cursos pueden tener secciones bloqueadas o todavía no disponibles.
+- Algunos cursos pueden contener módulos bloqueados o no disponibles.
 
 ### El recorrido se pausa
 
-El dashboard debe indicar el motivo. Los casos no verificables se dejan para revisión manual en lugar de intentar acciones dudosas.
+El dashboard indica el motivo. Los elementos que no pueden verificarse de forma segura se dejan para revisión manual.
 
 ### El navegador muestra “Errores” en la extensión
 
-Anota el mensaje y la etapa del dashboard. Para depuración, abre **Detalles técnicos** y comparte únicamente el diagnóstico sanitizado; no compartas cookies, credenciales ni datos privados de Moodle.
+Abre **Detalles técnicos** y revisa el diagnóstico sanitizado. No publiques cookies, credenciales ni información privada de Moodle al reportar un problema.
 
 ---
 
-## Compatibilidad actual
+## Compatibilidad
 
 | Entorno | Estado |
 |---|---|
 | Microsoft Edge Chromium | Compatible |
 | Google Chrome Chromium | Compatible |
-| Manifest V3 | Sí |
-| Moodle UIP | Objetivo actual |
+| Manifest V3 | Compatible |
+| Moodle UIP | Plataforma objetivo |
 | Firefox | No soportado actualmente |
 | Safari | No soportado actualmente |
 
@@ -163,4 +161,6 @@ Anota el mensaje y la etapa del dashboard. Para depuración, abre **Detalles té
 
 ## Seguridad
 
-UIP Student Assistant usa la sesión que ya está iniciada en Moodle. No solicita ni almacena usuario, contraseña, cookies, tokens, `sesskey` ni contenido HTML completo.
+UIP Student Assistant utiliza la sesión de Moodle ya iniciada en el navegador. No solicita ni almacena usuario, contraseña, cookies, tokens, `sesskey` ni HTML completo de las páginas.
+
+Consulta [`SECURITY.md`](SECURITY.md) para detalles técnicos.
