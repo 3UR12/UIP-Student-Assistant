@@ -4,13 +4,17 @@ importScripts("../background/automation-engine.js");
 const WORKFLOW_KEY = "uip.automation.v2";
 const DISCOVERY_KEY = "uip.automation.discovery.v1";
 const WATCHDOG_ALARM = "uip.automation.watchdog";
+const DISCOVERY_TIMEOUT_ALARM = "uip.automation.discovery.timeout";
 const MOODLE_ORIGIN = "https://moodle.uip.edu.pa";
 const MOODLE_HOME = `${MOODLE_ORIGIN}/my/`;
 const WAIT_TIMEOUT_MINUTES = 0.5;
+const DISCOVERY_TIMEOUT_MINUTES = 0.25;
 let dashboardTabId = null;
 let scanPumpRunning = false;
+let courseDiscoveryPromise = null;
 const pendingScans = [];
 const activeScanKeys = new Map();
+const DISCOVERY_STATUSES = new Set(["idle", "loading-courses", "courses-ready", "loading-modules", "modules-ready", "login-required", "error"]);
 
 const engine = globalThis.UIPAutomationEngine;
 const isMoodleUrl = (value) => {
@@ -59,8 +63,9 @@ async function clearWorkflow() {
 async function loadDiscovery() {
   const stored = await storageGet(DISCOVERY_KEY);
   if (!stored.ok) return stored;
-  const value = stored.value && typeof stored.value === "object" ? stored.value : { courses: [], modules: [], course: null, updatedAt: null, error: null };
-  return { ok: true, discovery: value };
+  const value = stored.value && typeof stored.value === "object" ? stored.value : {};
+  const inferredStatus = value.error === "login-required" ? "login-required" : Array.isArray(value.modules) && value.modules.length && value.course ? "modules-ready" : Array.isArray(value.courses) && value.courses.length ? "courses-ready" : "idle";
+  return { ok: true, discovery: { courses: [], modules: [], course: null, requestId: null, startedAt: null, updatedAt: null, error: null, ...value, status: DISCOVERY_STATUSES.has(value.status) ? value.status : inferredStatus } };
 }
 async function saveDiscovery(value) {
   const safe = {
@@ -71,11 +76,28 @@ async function saveDiscovery(value) {
       return { ...safe, selectable: isSelectableModule(safe) };
     }).filter((module) => module.id && module.url) : [],
     course: value && value.course && typeof value.course.id === "string" && isMoodleUrl(value.course.url) ? { id: value.course.id, url: value.course.url, name: typeof value.course.name === "string" ? value.course.name.slice(0, 300) : null } : null,
+    status: value && DISCOVERY_STATUSES.has(value.status) ? value.status : "idle",
+    requestId: value && typeof value.requestId === "string" ? value.requestId.slice(0, 100) : null,
+    startedAt: value && Number.isFinite(value.startedAt) ? value.startedAt : null,
     updatedAt: Date.now(), error: value && typeof value.error === "string" ? value.error.slice(0, 120) : null
   };
   const saved = await storageSet(DISCOVERY_KEY, safe);
   if (saved.ok) notifyDashboard();
   return { ...saved, discovery: safe };
+}
+async function armDiscoveryTimeout(discovery, clearWhenInactive = true) {
+  if (!discovery || !["loading-courses", "loading-modules"].includes(discovery.status)) {
+    if (clearWhenInactive) await chrome.alarms.clear(DISCOVERY_TIMEOUT_ALARM);
+    return;
+  }
+  const startedAt = Number.isFinite(discovery.startedAt) ? discovery.startedAt : Date.now();
+  const remaining = Math.max(0.01, DISCOVERY_TIMEOUT_MINUTES - Math.max(0, Date.now() - startedAt) / 60000);
+  await chrome.alarms.create(DISCOVERY_TIMEOUT_ALARM, { delayInMinutes: remaining });
+}
+async function persistDiscovery(value) {
+  const saved = await saveDiscovery(value);
+  if (saved.ok) await armDiscoveryTimeout(saved.discovery);
+  return saved;
 }
 function tabsQuery(query) { return new Promise((resolve) => chrome.tabs.query(query, (tabs) => resolve(runtimeError() ? [] : tabs || []))); }
 function tabsGet(tabId) { return new Promise((resolve) => chrome.tabs.get(tabId, (tab) => resolve(runtimeError() ? null : tab || null))); }
@@ -136,9 +158,9 @@ async function scanWorker(tabId) {
 async function handleDiscovery(scan) {
   const current = await loadDiscovery();
   if (!current.ok) return;
-  if (scan.sessionApparentlyNotStarted === true) { await saveDiscovery({ ...current.discovery, error: "login-required" }); return; }
-  if (scan.pageType === "AREA_PERSONAL") await saveDiscovery({ ...current.discovery, courses: scan.courses || [], error: null });
-  if (scan.pageType === "COURSE" && scan.course && scan.course.id) await saveDiscovery({ ...current.discovery, course: scan.course, modules: scan.modules || [], error: null });
+  if (scan.sessionApparentlyNotStarted === true) { await persistDiscovery({ ...current.discovery, status: "login-required", startedAt: null, error: "login-required" }); return; }
+  if (scan.pageType === "AREA_PERSONAL") await persistDiscovery({ ...current.discovery, status: "courses-ready", startedAt: null, courses: scan.courses || [], error: null });
+  if (scan.pageType === "COURSE" && scan.course && scan.course.id) await persistDiscovery({ ...current.discovery, status: "modules-ready", startedAt: null, course: scan.course, modules: scan.modules || [], error: null });
 }
 async function processScan(tabId, scan) {
   try {
@@ -184,11 +206,31 @@ async function enqueueScan(tabId, scan) {
   }
 }
 async function beginCourseDiscovery(sender) {
-  const worker = await ensureWorker(sender && sender.tab && sender.tab.id);
-  if (!worker) return { ok: false, error: "worker-unavailable" };
-  await saveDiscovery({ courses: [], modules: [], course: null, updatedAt: Date.now(), error: null });
-  await tabsUpdate(worker.id, { url: MOODLE_HOME });
-  return { ok: true, workerTabId: worker.id };
+  if (courseDiscoveryPromise) return { ok: true, alreadyRunning: true };
+  let operation;
+  operation = (async () => {
+    const current = await loadDiscovery();
+    if (!current.ok) return current;
+    if (current.discovery.status === "loading-courses") return { ok: true, alreadyRunning: true, requestId: current.discovery.requestId };
+    const worker = await ensureWorker(sender && sender.tab && sender.tab.id);
+    if (!worker) {
+      await persistDiscovery({ ...current.discovery, status: "error", startedAt: null, error: "worker-unavailable" });
+      return { ok: false, error: "worker-unavailable" };
+    }
+    const requestId = `courses-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    // Keep last known courses visible while Moodle refreshes the source page.
+    const loading = await persistDiscovery({ ...current.discovery, status: "loading-courses", requestId, startedAt: Date.now(), error: null });
+    if (!loading.ok) return loading;
+    const navigated = await tabsUpdate(worker.id, { url: MOODLE_HOME });
+    if (!navigated) {
+      await persistDiscovery({ ...loading.discovery, status: "error", startedAt: null, error: "discovery-navigation-failed" });
+      return { ok: false, error: "discovery-navigation-failed" };
+    }
+    return { ok: true, workerTabId: worker.id, requestId };
+  })();
+  courseDiscoveryPromise = operation;
+  try { return await operation; }
+  finally { if (courseDiscoveryPromise === operation) courseDiscoveryPromise = null; }
 }
 async function selectCourse(course) {
   const discovery = await loadDiscovery();
@@ -196,8 +238,12 @@ async function selectCourse(course) {
   if (!found) return { ok: false, error: "course-not-observed" };
   const worker = await ensureWorker();
   if (!worker) return { ok: false, error: "worker-unavailable" };
-  await saveDiscovery({ ...discovery.discovery, course: found, modules: [], error: null });
-  await tabsUpdate(worker.id, { url: found.url });
+  const loading = await persistDiscovery({ ...discovery.discovery, status: "loading-modules", requestId: `modules-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`, startedAt: Date.now(), course: found, modules: [], error: null });
+  if (!loading.ok) return loading;
+  if (!await tabsUpdate(worker.id, { url: found.url })) {
+    await persistDiscovery({ ...loading.discovery, status: "error", startedAt: null, error: "discovery-navigation-failed" });
+    return { ok: false, error: "discovery-navigation-failed" };
+  }
   return { ok: true, workerTabId: worker.id };
 }
 async function startRun(message) {
@@ -221,6 +267,11 @@ async function currentState() {
   const [workflow, discovery] = await Promise.all([loadWorkflow(), loadDiscovery()]);
   return { ok: workflow.ok && discovery.ok, workflow: workflow.ok ? engine.metadata(workflow.workflow) : null, discovery: discovery.ok ? discovery.discovery : null, error: !workflow.ok || !discovery.ok ? "workflow-storage-unavailable" : null };
 }
+async function expireDiscovery() {
+  const current = await loadDiscovery();
+  if (!current.ok || !["loading-courses", "loading-modules"].includes(current.discovery.status)) return;
+  await persistDiscovery({ ...current.discovery, status: "error", startedAt: null, error: "discovery-timeout" });
+}
 async function openDashboard() {
   if (Number.isInteger(dashboardTabId)) {
     const previous = await tabsGet(dashboardTabId);
@@ -235,6 +286,7 @@ async function openDashboard() {
 async function openMoodleWorker() {
   const tab = await ensureWorker();
   if (!tab || !Number.isInteger(tab.id)) return { ok: false, error: "worker-unavailable" };
+  await tabsUpdate(tab.id, { active: true });
   const loaded = await loadWorkflow();
   if (!loaded.ok) return loaded;
   if (loaded.workflow && loaded.workflow.workerTabId !== tab.id) {
@@ -255,9 +307,12 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (changeInfo.status === "complete" && isMoodleUrl(tab && tab.url)) scanWorker(tabId);
 });
 chrome.alarms.onAlarm.addListener(async (alarm) => {
-  if (!alarm || alarm.name !== WATCHDOG_ALARM) return;
-  const workflow = await loadWorkflow();
-  if (workflow.ok && workflow.workflow) await applyTransition(engine.timeout(workflow.workflow));
+  if (!alarm) return;
+  if (alarm.name === DISCOVERY_TIMEOUT_ALARM) { await expireDiscovery(); return; }
+  if (alarm.name === WATCHDOG_ALARM) {
+    const workflow = await loadWorkflow();
+    if (workflow.ok && workflow.workflow) await applyTransition(engine.timeout(workflow.workflow));
+  }
 });
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message) return undefined;
@@ -286,4 +341,12 @@ loadWorkflow().then(async (result) => {
   if (!result.ok || !result.workflow || !["RUNNING", "LOGIN_REQUIRED"].includes(result.workflow.status)) return;
   await armWatchdog(result.workflow);
   if (Number.isInteger(result.workflow.workerTabId)) await scanWorker(result.workflow.workerTabId);
+}).catch(() => undefined);
+// A reclaimed service worker must retain the terminal discovery state or
+// restore its timeout, never restart Moodle navigation on its own.
+loadDiscovery().then(async (result) => {
+  if (!result.ok) return;
+  const startedAt = Number.isFinite(result.discovery.startedAt) ? result.discovery.startedAt : Date.now();
+  if (["loading-courses", "loading-modules"].includes(result.discovery.status) && Date.now() - startedAt >= DISCOVERY_TIMEOUT_MINUTES * 60000) await expireDiscovery();
+  else await armDiscoveryTimeout(result.discovery, false);
 }).catch(() => undefined);

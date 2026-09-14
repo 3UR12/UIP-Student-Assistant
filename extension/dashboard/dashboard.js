@@ -7,9 +7,13 @@
     progressBar: $("#progress-bar"), progressLabel: $("#progress-label"), runState: $("#run-state"), currentModule: $("#current-module"), currentAction: $("#current-action"), problem: $("#run-problem"),
     technical: $("#technical-output")
   };
-  let state = { workflow: null, discovery: { courses: [], modules: [], course: null } };
+  let state = { workflow: null, discovery: { status: "idle", courses: [], modules: [], course: null } };
   let confirmationOpen = false;
   let selectedModuleIds = new Set();
+  let refreshRunning = false;
+  let refreshQueued = false;
+  let discoveryRequestRunning = false;
+  let initialized = false;
   const send = (message) => new Promise((resolve) => chrome.runtime.sendMessage(message, (response) => resolve(chrome.runtime.lastError ? { ok: false, error: "background-unavailable" } : response || { ok: false, error: "background-unavailable" })));
   const setNotice = (value) => { ui.notice.textContent = value; };
   const escape = (value) => String(value || "").replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[character]);
@@ -22,7 +26,9 @@
   function renderCourses() {
     const courses = state.discovery.courses || [];
     const selected = state.discovery.course && state.discovery.course.id || "";
-    ui.course.innerHTML = courses.length ? '<option value="">Selecciona una materia</option>' + courses.map((course) => `<option value="${escape(course.id)}">${escape(course.name || "Materia sin nombre")}</option>`).join("") : '<option value="">Cargando materias…</option>';
+    const discovery = state.discovery || {};
+    const emptyLabel = discovery.status === "courses-ready" ? "No se encontraron materias disponibles." : discovery.status === "error" ? "No se pudieron cargar las materias." : "Cargando materias…";
+    ui.course.innerHTML = courses.length ? '<option value="">Selecciona una materia</option>' + courses.map((course) => `<option value="${escape(course.id)}">${escape(course.name || "Materia sin nombre")}</option>`).join("") : `<option value="">${emptyLabel}</option>`;
     ui.course.disabled = !courses.length;
     ui.course.value = selected;
   }
@@ -90,17 +96,60 @@
     }
     show(ui.running); renderProgress(workflow);
   }
-  async function refresh() {
-    const result = await send({ type: "UIP_AUTOMATION_GET_STATE" });
-    if (!result.ok) { setNotice(statusMessage(result.error)); return; }
-    state = result; render();
-    if (!state.workflow && (!state.discovery.courses || !state.discovery.courses.length)) { setNotice("Cargando materias desde Moodle…"); await send({ type: "UIP_AUTOMATION_DISCOVER_COURSES" }); }
-    else if (state.discovery.error === "login-required") setNotice("Necesitas iniciar sesión en Moodle para cargar materias.");
-    else if (state.workflow && state.workflow.status === "CANCELLED") setNotice("El recorrido fue cancelado. Puedes configurar uno nuevo.");
+  function renderNotice() {
+    const discovery = state.discovery || {};
+    if (state.workflow && state.workflow.status === "CANCELLED") setNotice("El recorrido fue cancelado. Puedes configurar uno nuevo.");
     else if (state.workflow && state.workflow.status === "DONE") setNotice("El recorrido finalizó. Revisa el resumen o inicia uno nuevo.");
-    else setNotice(state.workflow ? "El recorrido continúa aunque cierres este dashboard." : "Moodle está conectado.");
+    else if (state.workflow) setNotice("El recorrido continúa aunque cierres este dashboard.");
+    else if (discovery.status === "loading-courses") setNotice((discovery.courses || []).length ? "Actualizando materias…" : "Cargando materias desde Moodle…");
+    else if (discovery.status === "loading-modules") setNotice("Cargando módulos desde Moodle…");
+    else if (discovery.status === "courses-ready") setNotice((discovery.courses || []).length ? "Materias cargadas." : "No se encontraron materias disponibles.");
+    else if (discovery.status === "login-required") setNotice("Necesitas iniciar sesión en Moodle.");
+    else if (discovery.status === "error") setNotice("No se pudieron cargar las materias.");
+    else setNotice("Conectando con Moodle…");
+    const retry = $("#retry-courses");
+    retry.textContent = discovery.status === "login-required" ? "Abrir Moodle" : discovery.status === "error" ? "Reintentar" : "Actualizar materias";
+    retry.disabled = discovery.status === "loading-courses" || discoveryRequestRunning;
   }
-  $("#retry-courses").addEventListener("click", async () => { setNotice("Actualizando materias…"); await send({ type: "UIP_AUTOMATION_DISCOVER_COURSES" }); });
+  async function refreshState() {
+    if (refreshRunning) { refreshQueued = true; return; }
+    refreshRunning = true;
+    try {
+      const result = await send({ type: "UIP_AUTOMATION_GET_STATE" });
+      if (!result.ok) { setNotice(statusMessage(result.error)); return; }
+      state = result; render(); renderNotice();
+    } finally {
+      refreshRunning = false;
+      if (refreshQueued) { refreshQueued = false; refreshState(); }
+    }
+  }
+  async function requestCourseDiscovery() {
+    if (discoveryRequestRunning || state.discovery && state.discovery.status === "loading-courses") return;
+    discoveryRequestRunning = true;
+    renderNotice();
+    try {
+      const result = await send({ type: "UIP_AUTOMATION_DISCOVER_COURSES" });
+      if (!result.ok) setNotice(statusMessage(result.error));
+      await refreshState();
+    } finally {
+      discoveryRequestRunning = false;
+      renderNotice();
+    }
+  }
+  async function handleCourseAction() {
+    if (state.discovery && state.discovery.status === "login-required") {
+      await send({ type: "UIP_AUTOMATION_OPEN_MOODLE" });
+      return;
+    }
+    await requestCourseDiscovery();
+  }
+  async function initializeDashboard() {
+    if (initialized) return;
+    initialized = true;
+    await refreshState();
+    if (!state.workflow && state.discovery && state.discovery.status === "idle") await requestCourseDiscovery();
+  }
+  $("#retry-courses").addEventListener("click", handleCourseAction);
   ui.course.addEventListener("change", async () => { const course = (state.discovery.courses || []).find((item) => item.id === ui.course.value); if (!course) return; selectedModuleIds = new Set(); confirmationOpen = false; setNotice("Abriendo materia y cargando módulos…"); await send({ type: "UIP_AUTOMATION_SELECT_COURSE", course }); });
   ui.modules.addEventListener("change", () => { selectedModuleIds = new Set(Array.from(ui.modules.querySelectorAll("input:checked")).map((input) => input.value)); renderSetup(); });
   ui.rating.addEventListener("change", renderSetup);
@@ -108,15 +157,15 @@
   $("#clear-all").addEventListener("click", () => { selectedModuleIds = new Set(); renderSetup(); });
   ui.prepare.addEventListener("click", () => { confirmationOpen = true; ui.confirmSummary.textContent = `Materia: ${state.discovery.course && state.discovery.course.name || "Sin nombre"}. Módulos: ${selectedIds().length}. Valoración: ${ui.rating.value}.`; renderSetup(); });
   $("#dismiss-confirm").addEventListener("click", () => { confirmationOpen = false; renderSetup(); });
-  $("#start-run").addEventListener("click", async () => { $("#start-run").disabled = true; const result = await send({ type: "UIP_AUTOMATION_START", moduleIds: selectedIds(), preference: ui.rating.value }); if (!result.ok) setNotice(statusMessage(result.error)); confirmationOpen = false; await refresh(); });
-  $("#pause-run").addEventListener("click", async () => { await send({ type: "UIP_AUTOMATION_PAUSE" }); await refresh(); });
-  $("#cancel-run").addEventListener("click", async () => { await send({ type: "UIP_AUTOMATION_CANCEL" }); await refresh(); });
-  $("#cancel-paused").addEventListener("click", async () => { await send({ type: "UIP_AUTOMATION_CANCEL" }); await refresh(); });
-  $("#resume-run").addEventListener("click", async () => { await send({ type: "UIP_AUTOMATION_RESUME" }); await refresh(); });
-  $("#restart-run").addEventListener("click", async () => { selectedModuleIds = new Set(); await send({ type: "UIP_AUTOMATION_NEW_RUN" }); await refresh(); });
+  $("#start-run").addEventListener("click", async () => { $("#start-run").disabled = true; const result = await send({ type: "UIP_AUTOMATION_START", moduleIds: selectedIds(), preference: ui.rating.value }); if (!result.ok) setNotice(statusMessage(result.error)); confirmationOpen = false; await refreshState(); });
+  $("#pause-run").addEventListener("click", async () => { await send({ type: "UIP_AUTOMATION_PAUSE" }); await refreshState(); });
+  $("#cancel-run").addEventListener("click", async () => { await send({ type: "UIP_AUTOMATION_CANCEL" }); await refreshState(); });
+  $("#cancel-paused").addEventListener("click", async () => { await send({ type: "UIP_AUTOMATION_CANCEL" }); await refreshState(); });
+  $("#resume-run").addEventListener("click", async () => { await send({ type: "UIP_AUTOMATION_RESUME" }); await refreshState(); });
+  $("#restart-run").addEventListener("click", async () => { selectedModuleIds = new Set(); await send({ type: "UIP_AUTOMATION_NEW_RUN" }); await refreshState(); });
   $("#open-moodle").addEventListener("click", async () => { await send({ type: "UIP_AUTOMATION_OPEN_MOODLE" }); });
-  $("#new-run").addEventListener("click", async () => { selectedModuleIds = new Set(); await send({ type: "UIP_AUTOMATION_NEW_RUN" }); await refresh(); });
-  chrome.runtime.onMessage.addListener((message) => { if (message && message.type === "UIP_AUTOMATION_STATE_CHANGED") refresh(); });
-  setInterval(refresh, 1500);
-  refresh();
+  $("#new-run").addEventListener("click", async () => { selectedModuleIds = new Set(); await send({ type: "UIP_AUTOMATION_NEW_RUN" }); await refreshState(); });
+  chrome.runtime.onMessage.addListener((message) => { if (message && message.type === "UIP_AUTOMATION_STATE_CHANGED") refreshState(); });
+  setInterval(() => { render(); renderNotice(); }, 1500);
+  initializeDashboard();
 })();

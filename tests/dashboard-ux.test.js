@@ -32,6 +32,15 @@ assert.ok(script.includes("Sección general no incluida."));
 assert.ok(script.includes('item.status === "blocked" ? "No disponible"'));
 assert.ok(script.includes("WAIT_SECTION"));
 assert.ok(script.includes("phaseLabel"));
+assert.ok(script.includes("initializeDashboard"));
+assert.ok(script.includes("refreshRunning"));
+assert.ok(script.includes("Cargando materias desde Moodle…"));
+assert.ok(script.includes("No se encontraron materias disponibles."));
+assert.ok(script.includes("No se pudieron cargar las materias."));
+assert.ok(script.includes('"Reintentar"'));
+const refreshStateSource = script.slice(script.indexOf("async function refreshState"), script.indexOf("async function requestCourseDiscovery"));
+assert.equal(refreshStateSource.includes("UIP_AUTOMATION_DISCOVER_COURSES"), false, "state refresh must remain read-only");
+assert.equal(script.includes("setInterval(refresh"), false, "timer must not poll the background");
 
 // The layout remains responsive and status changes remain visible to assistive tech.
 assert.ok(html.includes('aria-live="polite"'));

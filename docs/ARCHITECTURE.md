@@ -12,6 +12,8 @@
 
 `extension/dashboard/` is a persistent extension page opened from the action icon. It displays setup, one final confirmation, live progress, terminal summary, and pause/recovery controls. It never clicks Moodle controls or writes workflow state directly.
 
+Course discovery has a separate persisted lifecycle: `idle`, `loading-courses`, `courses-ready`, `loading-modules`, `modules-ready`, `login-required`, or `error`, with a request ID and start time. Dashboard state refreshes are read-only and single-flight. Only the one-time dashboard bootstrap and an explicit user update action can start discovery. The service coalesces concurrent requests, retains known courses while refreshing, navigates `/my/` once per request, and ends a missing response through a persisted discovery timeout rather than retrying indefinitely.
+
 ## Execution Flow
 
 ```text

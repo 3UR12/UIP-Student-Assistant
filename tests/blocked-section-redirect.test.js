@@ -10,7 +10,7 @@ const modules = [
   { id: "712", name: "Módulo#2 Memoria ROM y RAM", url: `${origin}/course/section.php?id=712` },
   { id: "713", name: "Módulo #3 Práctica guiada", url: `${origin}/course/section.php?id=713` }
 ];
-const tick = (milliseconds = 3) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+const tick = (milliseconds = 0) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
 function loadEngine() {
   const context = { globalThis: {}, URL, Set, JSON, Math, Date };
@@ -37,8 +37,8 @@ function serviceHarness(seed) {
       onMessage: { addListener(listener) { onMessage = listener; } }
     },
     storage: { session: {
-      async get(key) { await tick(Math.floor(Math.random() * 3)); return { [key]: stored[key] }; },
-      async set(value) { await tick(Math.floor(Math.random() * 3)); Object.assign(stored, value); },
+      async get(key) { await Promise.resolve(); return { [key]: stored[key] }; },
+      async set(value) { await Promise.resolve(); Object.assign(stored, value); },
       async remove(key) { delete stored[key]; }
     } },
     action: { onClicked: listenerSlot("action") },
