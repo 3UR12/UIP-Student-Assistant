@@ -7,85 +7,185 @@
     <link rel="stylesheet" href="dashboard.css">
   </head>
   <body>
-    <main class="shell">
-      <header class="masthead">
-        <p class="eyebrow">UIP Student Assistant</p>
-        <h1>Procesamiento automático de encuestas</h1>
-        <p class="lede">Selecciona una materia, los módulos que deseas procesar y una valoración. La extensión procesará automáticamente las encuestas compatibles de Moodle.</p>
-        <p class="disclaimer">Herramienta independiente para uso personal.</p>
+    <main class="app-shell">
+      <header class="app-header">
+        <div class="brand-block">
+          <div class="brand-mark" aria-hidden="true">US</div>
+          <div>
+            <p class="product-name">UIP Student Assistant</p>
+            <p class="product-subtitle">Automatización de Feedback en Moodle</p>
+          </div>
+        </div>
+        <span class="version-badge">Beta</span>
       </header>
 
-      <p id="notice" class="notice" role="status" aria-live="polite">Conectando con Moodle…</p>
+      <section class="intro" aria-labelledby="page-title">
+        <p class="eyebrow">Recorrido automático</p>
+        <h1 id="page-title">Configura una vez. Revisa el progreso en tiempo real.</h1>
+        <p>Selecciona la materia, los módulos y la valoración. La extensión se encarga de navegar Moodle y procesar únicamente los Feedback que puede verificar con seguridad.</p>
+      </section>
 
-      <section id="setup-view" class="panel" aria-labelledby="setup-title">
-        <div class="section-heading">
-          <div><p class="kicker">Configuración</p><h2 id="setup-title">Prepara el recorrido</h2></div>
-          <button id="retry-courses" class="quiet" type="button">Actualizar materias</button>
+      <div id="notice" class="status-banner" role="status" aria-live="polite">Conectando con Moodle…</div>
+
+      <section id="setup-view" class="workspace" aria-labelledby="setup-title">
+        <div class="workspace-heading">
+          <div>
+            <p class="section-label">Configuración</p>
+            <h2 id="setup-title">Nuevo recorrido</h2>
+          </div>
+          <button id="retry-courses" class="button button-ghost" type="button">Actualizar materias</button>
         </div>
 
-        <label class="field" for="course-select">
-          <span>Materia</span>
-          <select id="course-select" disabled><option value="">Cargando materias…</option></select>
-          <small id="course-help">Las materias se cargan automáticamente desde Moodle.</small>
-        </label>
+        <div class="setup-grid">
+          <section class="setup-card step-card">
+            <div class="step-heading">
+              <span class="step-number">1</span>
+              <div><h3>Materia</h3><p>Elige el curso que quieres procesar.</p></div>
+            </div>
+            <label class="field" for="course-select">
+              <span class="field-label">Materia disponible</span>
+              <select id="course-select" disabled><option value="">Cargando materias…</option></select>
+              <small id="course-help">La lista se obtiene automáticamente desde Moodle.</small>
+            </label>
+          </section>
 
-        <fieldset id="modules-fieldset" class="modules" disabled>
-          <div class="section-heading modules-heading">
-            <legend>Módulos</legend>
-            <div class="module-actions"><button id="select-all" class="link-button" type="button">Seleccionar disponibles</button><button id="clear-all" class="link-button" type="button">Deseleccionar</button></div>
-          </div>
-          <p id="module-count" class="helper">Selecciona una materia para ver sus módulos.</p>
-          <div id="module-list" class="module-list"></div>
-        </fieldset>
+          <section class="setup-card step-card modules-card">
+            <div class="step-heading">
+              <span class="step-number">2</span>
+              <div><h3>Módulos</h3><p>Marca sólo los módulos que deseas incluir.</p></div>
+            </div>
+            <fieldset id="modules-fieldset" class="modules" disabled>
+              <div class="module-toolbar">
+                <p id="module-count" class="helper">Selecciona una materia para ver sus módulos.</p>
+                <div class="module-actions">
+                  <button id="select-all" class="text-button" type="button">Seleccionar disponibles</button>
+                  <button id="clear-all" class="text-button" type="button">Deseleccionar</button>
+                </div>
+              </div>
+              <div id="module-list" class="module-list"></div>
+            </fieldset>
+          </section>
 
-        <label class="field" for="rating-select">
-          <span>Valoración</span>
-          <select id="rating-select">
-            <option value="">Selecciona una valoración</option>
-            <option value="Excelente">Excelente</option>
-            <option value="Muy Bueno">Muy Bueno</option>
-            <option value="Bueno">Bueno</option>
-            <option value="Satisfactorio">Satisfactorio</option>
-            <option value="Puede mejorar">Puede mejorar</option>
-          </select>
-          <small id="rating-help">La valoración se aplicará solo a radios compatibles y sin respuesta.</small>
-        </label>
+          <section class="setup-card step-card">
+            <div class="step-heading">
+              <span class="step-number">3</span>
+              <div><h3>Valoración</h3><p>Se aplica únicamente en preguntas compatibles sin respuesta.</p></div>
+            </div>
+            <label class="field" for="rating-select">
+              <span class="field-label">Valoración</span>
+              <select id="rating-select">
+                <option value="">Selecciona una valoración</option>
+                <option value="Excelente">Excelente</option>
+                <option value="Muy Bueno">Muy Bueno</option>
+                <option value="Bueno">Bueno</option>
+                <option value="Satisfactorio">Satisfactorio</option>
+                <option value="Puede mejorar">Puede mejorar</option>
+              </select>
+              <small id="rating-help">Las respuestas existentes se conservan.</small>
+            </label>
+          </section>
+        </div>
 
-        <p id="setup-reason" class="helper">Selecciona una materia, uno o más módulos disponibles y una valoración.</p>
-        <button id="prepare-run" class="primary" type="button">Procesar 0 módulos</button>
+        <div class="setup-footer">
+          <p id="setup-reason" class="setup-message">Selecciona una materia, uno o más módulos disponibles y una valoración.</p>
+          <button id="prepare-run" class="button button-primary" type="button">Procesar 0 módulos</button>
+        </div>
 
         <section id="confirm-run" class="confirmation hidden" aria-labelledby="confirm-title">
-          <h3 id="confirm-title">Confirmar recorrido</h3>
-          <p id="confirm-summary"></p>
-          <p>UIP Student Assistant procesará automáticamente los Feedback compatibles. Las respuestas ya existentes no se reemplazarán y los formularios no compatibles se dejarán para revisión manual.</p>
-          <div class="button-row"><button id="dismiss-confirm" class="secondary" type="button">Cancelar</button><button id="start-run" class="primary" type="button">Ejecutar recorrido</button></div>
+          <div>
+            <p class="section-label">Confirmación</p>
+            <h3 id="confirm-title">Revisa antes de comenzar</h3>
+            <p id="confirm-summary"></p>
+            <p class="confirmation-note">El recorrido sólo enviará formularios que puedan verificarse. Los casos incompatibles quedarán identificados para revisión.</p>
+          </div>
+          <div class="button-row">
+            <button id="dismiss-confirm" class="button button-secondary" type="button">Volver</button>
+            <button id="start-run" class="button button-primary" type="button">Ejecutar recorrido</button>
+          </div>
         </section>
       </section>
 
-      <section id="running-view" class="panel hidden" aria-labelledby="progress-title">
-        <div class="section-heading"><div><p class="kicker">Progreso</p><h2 id="progress-title">Procesando recorrido</h2></div><span id="run-state" class="state-pill">En curso</span></div>
-        <div class="progress-track" aria-hidden="true"><span id="progress-bar"></span></div>
-        <p id="progress-label" class="progress-label" aria-live="polite"></p>
-        <article class="current-card"><p class="kicker">Módulo actual</p><h3 id="current-module">Preparando Moodle…</h3><p class="feedback-current"><span>Encuesta:</span> <strong id="current-feedback">Buscando una encuesta compatible…</strong></p><p id="current-action" aria-live="polite">Esperando la primera acción segura…</p><dl class="run-meta"><div><dt>Moodle</dt><dd id="moodle-connection">Cargando</dd></div><div><dt>Última actividad</dt><dd id="last-activity">Ahora</dd></div><div><dt>Tiempo en este paso</dt><dd id="step-elapsed">0 s</dd></div></dl></article>
-        <dl class="metrics"><div><dt>Enviados</dt><dd id="metric-submitted">0</dd></div><div><dt>Ya completados</dt><dd id="metric-completed">0</dd></div><div><dt>Sin Feedback</dt><dd id="metric-empty">0</dd></div><div><dt>No disponibles</dt><dd id="metric-blocked">0</dd></div><div><dt>Revisión manual</dt><dd id="metric-manual">0</dd></div><div><dt>Fallidos</dt><dd id="metric-failed">0</dd></div></dl>
-        <section class="run-details" aria-label="Avance del recorrido"><div><h3>Actividad reciente</h3><ol id="activity-log" class="activity-log"></ol></div><div><h3>Módulos</h3><ul id="module-summary" class="module-summary"></ul></div></section>
+      <section id="running-view" class="workspace hidden" aria-labelledby="progress-title">
+        <div class="workspace-heading progress-heading">
+          <div>
+            <p class="section-label">Procesamiento</p>
+            <h2 id="progress-title">Recorrido en curso</h2>
+          </div>
+          <span id="run-state" class="state-badge">En curso</span>
+        </div>
+
+        <div class="progress-panel">
+          <div class="progress-track" aria-hidden="true"><span id="progress-bar"></span></div>
+          <p id="progress-label" class="progress-label" aria-live="polite"></p>
+        </div>
+
+        <article class="current-card">
+          <div class="current-main">
+            <p class="section-label section-label-light">Módulo actual</p>
+            <h3 id="current-module">Preparando Moodle…</h3>
+            <p class="feedback-current">Encuesta: <strong id="current-feedback">Buscando una encuesta compatible…</strong></p>
+            <p id="current-action" class="current-action" aria-live="polite">Esperando la primera acción…</p>
+          </div>
+          <dl class="run-meta">
+            <div><dt>Moodle</dt><dd id="moodle-connection">Cargando</dd></div>
+            <div><dt>Última actividad</dt><dd id="last-activity">Ahora</dd></div>
+            <div><dt>Tiempo en este paso</dt><dd id="step-elapsed">0 s</dd></div>
+          </dl>
+        </article>
+
+        <dl class="metrics">
+          <div><dt>Enviados</dt><dd id="metric-submitted">0</dd></div>
+          <div><dt>Ya completados</dt><dd id="metric-completed">0</dd></div>
+          <div><dt>Sin Feedback</dt><dd id="metric-empty">0</dd></div>
+          <div><dt>No disponibles</dt><dd id="metric-blocked">0</dd></div>
+          <div><dt>Revisión manual</dt><dd id="metric-manual">0</dd></div>
+          <div><dt>Fallidos</dt><dd id="metric-failed">0</dd></div>
+        </dl>
+
+        <section class="run-details" aria-label="Avance del recorrido">
+          <div class="detail-card"><h3>Actividad reciente</h3><ol id="activity-log" class="activity-log"></ol></div>
+          <div class="detail-card"><h3>Estado por módulo</h3><ul id="module-summary" class="module-summary"></ul></div>
+        </section>
+
         <p id="run-problem" class="problem hidden" role="alert"></p>
-        <div class="button-row"><button id="pause-run" class="secondary" type="button">Pausar</button><button id="cancel-run" class="danger" type="button">Cancelar</button></div>
+        <div class="button-row actions-end">
+          <button id="pause-run" class="button button-secondary" type="button">Pausar</button>
+          <button id="cancel-run" class="button button-danger" type="button">Cancelar recorrido</button>
+        </div>
       </section>
 
-      <section id="paused-view" class="panel hidden" aria-labelledby="paused-title">
-        <p class="kicker">Recorrido detenido</p><h2 id="paused-title">El recorrido está pausado</h2><p id="paused-reason"></p>
-        <div class="button-row"><button id="open-moodle" class="secondary" type="button">Abrir Moodle</button><button id="resume-run" class="primary" type="button">Reanudar</button><button id="restart-run" class="primary hidden" type="button">Configurar nuevo recorrido</button><button id="cancel-paused" class="danger" type="button">Cancelar</button></div>
+      <section id="paused-view" class="workspace compact-view hidden" aria-labelledby="paused-title">
+        <p class="section-label">Atención</p>
+        <h2 id="paused-title">El recorrido está pausado</h2>
+        <p id="paused-reason" class="view-description"></p>
+        <div class="button-row">
+          <button id="open-moodle" class="button button-secondary" type="button">Abrir Moodle</button>
+          <button id="resume-run" class="button button-primary" type="button">Reanudar</button>
+          <button id="restart-run" class="button button-primary hidden" type="button">Configurar nuevo recorrido</button>
+          <button id="cancel-paused" class="button button-danger" type="button">Cancelar</button>
+        </div>
       </section>
 
-      <section id="done-view" class="panel hidden" aria-labelledby="done-title">
-        <p class="kicker">Resultado</p><h2 id="done-title">Recorrido completado</h2><p id="done-summary"></p>
-        <dl class="metrics"><div><dt>Enviados</dt><dd id="done-submitted">0</dd></div><div><dt>Ya completados</dt><dd id="done-completed">0</dd></div><div><dt>Sin Feedback</dt><dd id="done-empty">0</dd></div><div><dt>No disponibles</dt><dd id="done-blocked">0</dd></div><div><dt>Revisión manual</dt><dd id="done-manual">0</dd></div><div><dt>Fallidos</dt><dd id="done-failed">0</dd></div></dl>
-        <section class="run-details done-details" aria-label="Resultado por módulo"><div><h3>Resultado por módulo</h3><ul id="done-module-summary" class="module-summary"></ul></div></section>
-        <button id="new-run" class="primary" type="button">Nuevo recorrido</button>
+      <section id="done-view" class="workspace hidden" aria-labelledby="done-title">
+        <div class="workspace-heading">
+          <div><p class="section-label">Resultado</p><h2 id="done-title">Recorrido completado</h2></div>
+        </div>
+        <p id="done-summary" class="view-description"></p>
+        <dl class="metrics result-metrics">
+          <div><dt>Enviados</dt><dd id="done-submitted">0</dd></div>
+          <div><dt>Ya completados</dt><dd id="done-completed">0</dd></div>
+          <div><dt>Sin Feedback</dt><dd id="done-empty">0</dd></div>
+          <div><dt>No disponibles</dt><dd id="done-blocked">0</dd></div>
+          <div><dt>Revisión manual</dt><dd id="done-manual">0</dd></div>
+          <div><dt>Fallidos</dt><dd id="done-failed">0</dd></div>
+        </dl>
+        <section class="run-details done-details" aria-label="Resultado por módulo"><div class="detail-card full-width"><h3>Resultado por módulo</h3><ul id="done-module-summary" class="module-summary"></ul></div></section>
+        <div class="actions-end"><button id="new-run" class="button button-primary" type="button">Nuevo recorrido</button></div>
       </section>
 
-      <details id="technical-details" class="technical"><summary>Detalles técnicos</summary><pre id="technical-output"></pre></details>
+      <details id="technical-details" class="technical"><summary>Diagnóstico técnico</summary><pre id="technical-output"></pre></details>
+
+      <footer class="app-footer">Proyecto independiente. No afiliado a la Universidad Interamericana de Panamá ni a Moodle.</footer>
     </main>
     <script src="dashboard.js"></script>
   </body>
