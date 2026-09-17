@@ -1,4 +1,4 @@
-/* Pure, deterministic workflow decisions for the v0.5 automated processor. */
+/* Pure, deterministic workflow decisions for the v0.6 automated processor. */
 (function attachAutomationEngine(global) {
   const api = global.UIPAutomationEngine = global.UIPAutomationEngine || {};
   const ORIGIN = "https://moodle.uip.edu.pa";
@@ -11,6 +11,7 @@
   const MODULE_STATUSES = new Set(["pending", "running", "completed", "no-feedback", "blocked", "manual-required", "failed", "cancelled"]);
   const OUTCOME_REASONS = new Set(["no-feedback", "completed", "module-blocked", "feedback-blocked", "feedback-unknown", "response-form-unavailable", "form-not-compatible", "prefill-unverified", "submit-not-triggered", "submission-verified", "step-timeout"]);
   const TERMINAL_OUTCOMES = new Set(["SUCCESS", "COMPLETED_WITH_ISSUES"]);
+  const FEEDBACK_CAPABILITIES = new Set(["respondable", "completed", "blocked", "unknown"]);
   const validId = (value) => typeof value === "string" && /^\d+$/.test(value);
   const text = (value, limit = 180) => typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, limit) || null : null;
   const now = () => Date.now();
@@ -34,7 +35,7 @@
     const id = item && item.id;
     const url = canonical(item && item.url, "/course/section.php", id);
     if (!validId(id) || !url) return null;
-    return { id, url, name: text(item.name), status: MODULE_STATUSES.has(item.status) ? item.status : "pending", outcomeReason: outcomeReason(item.outcomeReason), feedbackSummary: Array.isArray(item.feedbackSummary) ? item.feedbackSummary.slice(0, 30).map((feedback) => ({ id: validId(feedback && feedback.id) ? feedback.id : null, name: text(feedback && feedback.name), status: text(feedback && feedback.status, 40) || "unknown", reason: outcomeReason(feedback && feedback.reason) })).filter((feedback) => feedback.id) : [] };
+    return { id, url, name: text(item.name), status: MODULE_STATUSES.has(item.status) ? item.status : "pending", outcomeReason: outcomeReason(item.outcomeReason), feedbackSummary: Array.isArray(item.feedbackSummary) ? item.feedbackSummary.slice(0, 30).map((feedback) => ({ id: validId(feedback && feedback.id) ? feedback.id : null, name: text(feedback && feedback.name), status: text(feedback && feedback.status, 40) || "unknown", reason: outcomeReason(feedback && feedback.reason), observedCompletion: ["completed", "incomplete", "unknown"].includes(feedback && feedback.observedCompletion) ? feedback.observedCompletion : "unknown", capability: FEEDBACK_CAPABILITIES.has(feedback && feedback.capability) ? feedback.capability : "unknown" })).filter((feedback) => feedback.id) : [] };
   }
   function recomputeProgress(workflow) {
     const progress = emptyProgress(workflow.modules.length);
@@ -83,14 +84,19 @@
     const module = currentModule(workflow);
     if (!module || !feedback || !validId(feedback.id)) return workflow;
     const previous = module.feedbackSummary.find((item) => item.id === feedback.id);
-    const summary = module.feedbackSummary.filter((item) => item.id !== feedback.id).concat([{ id: feedback.id, name: text(feedback.name) || previous && previous.name || null, status, reason: outcomeReason(reason) }]);
+    const summary = module.feedbackSummary.filter((item) => item.id !== feedback.id).concat([{ id: feedback.id, name: text(feedback.name) || previous && previous.name || null, status, reason: outcomeReason(reason), observedCompletion: previous && previous.observedCompletion || "unknown", capability: previous && previous.capability || "unknown" }]);
     return updateModule(workflow, module.id, { feedbackSummary: summary });
+  }
+  function observeCurrentFeedback(workflow, feedbackPage) {
+    const module = currentModule(workflow);
+    if (!module || !feedbackPage || feedbackPage.id !== workflow.currentFeedbackId) return workflow;
+    return updateModule(workflow, module.id, { feedbackSummary: module.feedbackSummary.map((item) => item.id === feedbackPage.id ? { ...item, observedCompletion: ["completed", "incomplete", "unknown"].includes(feedbackPage.completionState) ? feedbackPage.completionState : item.observedCompletion, capability: FEEDBACK_CAPABILITIES.has(feedbackPage.capability) ? feedbackPage.capability : item.capability } : item) });
   }
   function safeFeedback(feedback) {
     const id = feedback && feedback.id;
     const url = canonical(feedback && feedback.url, "/mod/feedback/view.php", id);
     if (!validId(id) || !url) return null;
-    return { id, url, name: text(feedback.name), completionState: ["completed", "incomplete", "unknown"].includes(feedback.completionState) ? feedback.completionState : "unknown", available: feedback.available === true ? true : feedback.available === false ? false : null };
+    return { id, url, name: text(feedback.name), completionState: ["completed", "incomplete", "unknown"].includes(feedback.completionState) ? feedback.completionState : "unknown", capability: FEEDBACK_CAPABILITIES.has(feedback.capability) ? feedback.capability : feedback.available === false ? "blocked" : "unknown", available: feedback.available === true ? true : feedback.available === false ? false : null };
   }
   function moduleReference(value) {
     const source = text(value, 260);
@@ -117,6 +123,9 @@
   function effect(type, payload) { return { type, ...payload }; }
   function wait(workflow, phase, semantic, extra) {
     return { workflow: touch(workflow, { status: "RUNNING", phase, semantic, ...extra }), effect: null };
+  }
+  function feedbackBlockedNotice(scan) {
+    return Array.isArray(scan && scan.pageNotices) && scan.pageNotices.some((notice) => /\b(no disponible|not available|restringido|restricted)\b/i.test(text(notice && notice.text, 260) || ""));
   }
   function stopModule(workflow, module, status, reason) {
     const safeReason = outcomeReason(reason);
@@ -178,7 +187,7 @@
       pauseRequested: false,
       lastSafeEvent: "configured",
       lastError: null,
-      updatedAt: now()
+      navigationStartedAt: null, pageReadyAt: null, scanAt: null, actionStartedAt: null, actionCompletedAt: null, updatedAt: now()
     };
     return recomputeProgress(workflow);
   };
@@ -195,7 +204,7 @@
       workerTabId: Number.isInteger(value.workerTabId) ? value.workerTabId : null,
       course: { id: value.course.id, url: courseUrl, name: text(value.course.name) }, preference, modules,
       currentModuleIndex: value.currentModuleIndex, currentFeedbackId: validId(value.currentFeedbackId) ? value.currentFeedbackId : null,
-      progress: emptyProgress(modules.length), terminalOutcome: TERMINAL_OUTCOMES.has(value.terminalOutcome) ? value.terminalOutcome : null, consecutiveIssueReason: outcomeReason(value.consecutiveIssueReason), consecutiveIssueCount: Number.isInteger(value.consecutiveIssueCount) && value.consecutiveIssueCount >= 0 && value.consecutiveIssueCount <= 3 ? value.consecutiveIssueCount : 0, activityLog: Array.isArray(value.activityLog) ? value.activityLog.slice(-30).map(safeActivity).filter(Boolean) : [], stepStartedAt: Number.isFinite(value.stepStartedAt) ? value.stepStartedAt : now(), lastActivityAt: Number.isFinite(value.lastActivityAt) ? value.lastActivityAt : now(), rules: { maxWaitRetries: 1, revalidateBeforeAction: true, requireVerifiedSubmission: true }, waitRetries: Number.isInteger(value.waitRetries) && value.waitRetries >= 0 && value.waitRetries <= 1 ? value.waitRetries : 0, pauseRequested: value.pauseRequested === true,
+      progress: emptyProgress(modules.length), terminalOutcome: TERMINAL_OUTCOMES.has(value.terminalOutcome) ? value.terminalOutcome : null, consecutiveIssueReason: outcomeReason(value.consecutiveIssueReason), consecutiveIssueCount: Number.isInteger(value.consecutiveIssueCount) && value.consecutiveIssueCount >= 0 && value.consecutiveIssueCount <= 3 ? value.consecutiveIssueCount : 0, activityLog: Array.isArray(value.activityLog) ? value.activityLog.slice(-30).map(safeActivity).filter(Boolean) : [], stepStartedAt: Number.isFinite(value.stepStartedAt) ? value.stepStartedAt : now(), lastActivityAt: Number.isFinite(value.lastActivityAt) ? value.lastActivityAt : now(), navigationStartedAt: Number.isFinite(value.navigationStartedAt) ? value.navigationStartedAt : null, pageReadyAt: Number.isFinite(value.pageReadyAt) ? value.pageReadyAt : null, scanAt: Number.isFinite(value.scanAt) ? value.scanAt : null, actionStartedAt: Number.isFinite(value.actionStartedAt) ? value.actionStartedAt : null, actionCompletedAt: Number.isFinite(value.actionCompletedAt) ? value.actionCompletedAt : null, rules: { maxWaitRetries: 1, revalidateBeforeAction: true, requireVerifiedSubmission: true }, waitRetries: Number.isInteger(value.waitRetries) && value.waitRetries >= 0 && value.waitRetries <= 1 ? value.waitRetries : 0, pauseRequested: value.pauseRequested === true,
       lastSafeEvent: text(value.lastSafeEvent, 100), lastError: value.lastError && { code: text(value.lastError.code, 80), message: text(value.lastError.message, 300) },
       updatedAt: Number.isFinite(value.updatedAt) ? value.updatedAt : now()
     };
@@ -207,8 +216,8 @@
     if (!workflow) return null;
     const module = currentModule(workflow);
     const feedback = module && workflow.currentFeedbackId && module.feedbackSummary.find((item) => item.id === workflow.currentFeedbackId);
-    const moduleOutcomes = workflow.modules.map((item) => ({ id: item.id, name: item.name, status: item.status, reason: item.outcomeReason, feedbacks: item.feedbackSummary.map((feedback) => ({ id: feedback.id, name: feedback.name, status: feedback.status, reason: feedback.reason })) }));
-    return { runId: workflow.runId, transition: workflow.transition, status: workflow.status, phase: workflow.phase, semantic: workflow.semantic, course: workflow.course, currentModule: module && { id: module.id, name: module.name, status: module.status, reason: module.outcomeReason }, currentFeedback: workflow.currentFeedbackId && { id: workflow.currentFeedbackId, name: feedback && feedback.name || null, reason: feedback && feedback.reason || null }, modules: workflow.modules.map((item) => ({ id: item.id, name: item.name, status: item.status, reason: item.outcomeReason })), moduleOutcomes, progress: workflow.progress, terminalOutcome: workflow.terminalOutcome, activityLog: workflow.activityLog, workerConnected: Number.isInteger(workflow.workerTabId), workerTabId: workflow.workerTabId, waitRetries: workflow.waitRetries, consecutiveIssueReason: workflow.consecutiveIssueReason, consecutiveIssueCount: workflow.consecutiveIssueCount, lastSafeEvent: workflow.lastSafeEvent, stepStartedAt: workflow.stepStartedAt, lastActivityAt: workflow.lastActivityAt, lastError: workflow.lastError, updatedAt: workflow.updatedAt };
+    const moduleOutcomes = workflow.modules.map((item) => ({ id: item.id, name: item.name, status: item.status, reason: item.outcomeReason, feedbacks: item.feedbackSummary.map((feedback) => ({ id: feedback.id, name: feedback.name, status: feedback.status, reason: feedback.reason, observedCompletion: feedback.observedCompletion, capability: feedback.capability })) }));
+    return { runId: workflow.runId, transition: workflow.transition, status: workflow.status, phase: workflow.phase, semantic: workflow.semantic, course: workflow.course, currentModule: module && { id: module.id, name: module.name, status: module.status, reason: module.outcomeReason }, currentFeedback: workflow.currentFeedbackId && { id: workflow.currentFeedbackId, name: feedback && feedback.name || null, reason: feedback && feedback.reason || null, observedCompletion: feedback && feedback.observedCompletion || "unknown", capability: feedback && feedback.capability || "unknown" }, modules: workflow.modules.map((item) => ({ id: item.id, name: item.name, status: item.status, reason: item.outcomeReason })), moduleOutcomes, progress: workflow.progress, terminalOutcome: workflow.terminalOutcome, activityLog: workflow.activityLog, workerConnected: Number.isInteger(workflow.workerTabId), workerTabId: workflow.workerTabId, waitRetries: workflow.waitRetries, consecutiveIssueReason: workflow.consecutiveIssueReason, consecutiveIssueCount: workflow.consecutiveIssueCount, lastSafeEvent: workflow.lastSafeEvent, stepStartedAt: workflow.stepStartedAt, lastActivityAt: workflow.lastActivityAt, navigationStartedAt: workflow.navigationStartedAt, pageReadyAt: workflow.pageReadyAt, scanAt: workflow.scanAt, actionStartedAt: workflow.actionStartedAt, actionCompletedAt: workflow.actionCompletedAt, lastError: workflow.lastError, updatedAt: workflow.updatedAt };
   };
   api.start = function start(value) {
     const workflow = api.sanitize(value);
@@ -281,11 +290,12 @@
       if (scan.pageType === "COURSE" && scan.course && scan.course.id === workflow.course.id && hasBlockedNotice(scan, module)) return blockModule(workflow, module);
       if (scan.pageType !== "SECTION" || !scan.currentSection || scan.currentSection.id !== module.id) return wait(workflow, "WAIT_SECTION", "Esperando apertura del módulo…");
       const feedback = (Array.isArray(scan.feedback) ? scan.feedback : []).map(safeFeedback).filter(Boolean);
-      if (!feedback.length) return stopModule(workflow, module, "no-feedback", "no-feedback");
+      if (!feedback.length) return scan.pageSettled === true ? stopModule(workflow, module, "no-feedback", "no-feedback") : wait(workflow, "WAIT_SECTION", "Esperando actividades del módulo…");
       let next = updateModule(workflow, module.id, { feedbackSummary: feedback.map((item) => {
         const existing = module.feedbackSummary.find((summary) => summary.id === item.id);
-        const preserved = existing && ["submitted", "manual-required", "blocked"].includes(existing.status) ? existing.status : null;
-        return { id: item.id, name: item.name, status: preserved || (item.completionState === "completed" ? "completed" : item.available === false ? "blocked" : item.completionState === "unknown" ? "manual-required" : "pending"), reason: preserved ? existing.reason : item.completionState === "completed" ? "completed" : item.available === false ? "feedback-blocked" : item.completionState === "unknown" ? "feedback-unknown" : null };
+        const preserved = existing && ["submitted", "completed", "manual-required", "blocked"].includes(existing.status) ? existing.status : null;
+        const capability = item.available === false ? "blocked" : item.capability;
+        return { id: item.id, name: item.name, status: preserved || (capability === "blocked" ? "blocked" : "pending"), reason: preserved ? existing.reason : capability === "blocked" ? "feedback-blocked" : null, observedCompletion: item.completionState, capability };
       }) });
       const pending = feedback.find((item) => next.modules[workflow.currentModuleIndex].feedbackSummary.find((summary) => summary.id === item.id).status === "pending");
       if (!pending) {
@@ -302,11 +312,14 @@
     if (["OPEN_FEEDBACK", "WAIT_FEEDBACK", "SCAN_FEEDBACK"].includes(workflow.phase)) {
       const feedbackPage = scan.feedbackPage;
       if (scan.pageType !== "FEEDBACK" || !feedbackPage || feedbackPage.id !== workflow.currentFeedbackId) return wait(workflow, "WAIT_FEEDBACK", "Esperando apertura de la encuesta…");
-      if (scan.feedbackResult && scan.feedbackResult.submissionVerified === true) return api.onVerifiedSubmission(workflow, scan);
-      if (scan.feedbackForm && scan.feedbackForm.detected === true) return api.onScan(touch(workflow, { phase: "PREFILL", semantic: "Aplicando valoración…" }), scan);
-      if (feedbackPage.canRespond === true && canonical(feedbackPage.responseUrl, "/mod/feedback/complete.php", feedbackPage.id)) return { workflow: touch(workflow, { phase: "OPEN_FORM", semantic: "Abriendo formulario…" }), effect: effect("NAVIGATE", { url: canonical(feedbackPage.responseUrl, "/mod/feedback/complete.php", feedbackPage.id) }) };
-      if (workflow.phase === "WAIT_FEEDBACK" && workflow.waitRetries >= 1) return api.markCurrentFeedback(workflow, "manual-required", "response-form-unavailable");
-      return wait(workflow, "WAIT_FEEDBACK", "Esperando disponibilidad del formulario…");
+      const observed = observeCurrentFeedback(workflow, feedbackPage);
+      if (feedbackPage.capability === "completed") return api.markCurrentFeedback(observed, "completed", "completed");
+      if (feedbackPage.capability === "blocked" || feedbackBlockedNotice(scan)) return api.markCurrentFeedback(observed, "blocked", "feedback-blocked");
+      if (scan.feedbackResult && scan.feedbackResult.submissionVerified === true) return api.onVerifiedSubmission(observed, scan);
+      if (scan.feedbackForm && scan.feedbackForm.detected === true) return api.onScan(touch(observed, { phase: "PREFILL", semantic: "Aplicando valoración…" }), scan);
+      if (feedbackPage.canRespond === true && canonical(feedbackPage.responseUrl, "/mod/feedback/complete.php", feedbackPage.id)) return { workflow: touch(observed, { phase: "OPEN_FORM", semantic: "Abriendo formulario…" }), effect: effect("NAVIGATE", { url: canonical(feedbackPage.responseUrl, "/mod/feedback/complete.php", feedbackPage.id) }) };
+      if (observed.phase === "WAIT_FEEDBACK" && observed.waitRetries >= 1) return api.markCurrentFeedback(observed, "manual-required", "response-form-unavailable");
+      return wait(observed, "WAIT_FEEDBACK", "Esperando disponibilidad del formulario…");
     }
 
     if (["OPEN_FORM", "WAIT_FORM", "PREFILL", "VERIFY_FORM"].includes(workflow.phase)) {
@@ -329,14 +342,14 @@
     const workflow = api.sanitize(value);
     if (!workflow || workflow.status !== "RUNNING" || workflow.phase !== "VERIFY_FORM") return { workflow, effect: null };
     if (!result || result.ok !== true || !result.prefillResult || result.prefillResult.staleForm === true) return api.markCurrentFeedback(workflow, "manual-required", "prefill-unverified");
-    const next = touch(workflow, { phase: "VERIFY_FORM", semantic: "Verificando respuestas…", lastSafeEvent: "prefill-completed" });
+    const next = touch(workflow, { phase: "VERIFY_FORM", semantic: "Verificando respuestas…", lastSafeEvent: "prefill-completed", actionCompletedAt: now() });
     return { workflow: next, effect: result.scan && typeof result.scan === "object" ? effect("PROCESS_SCAN", { scan: result.scan }) : effect("SCAN", {}) };
   };
   api.onSubmit = function onSubmit(value, result) {
     const workflow = api.sanitize(value);
     if (!workflow || workflow.status !== "RUNNING" || workflow.phase !== "SUBMIT") return { workflow, effect: null };
     if (!result || result.ok !== true || !result.submitResult || result.submitResult.submitTriggered !== true) return api.markCurrentFeedback(workflow, "manual-required", "submit-not-triggered");
-    return { workflow: touch(workflow, { phase: "VERIFY_SUBMISSION", semantic: "Confirmando envío…", lastSafeEvent: "submit-triggered" }), effect: null };
+    return { workflow: touch(workflow, { phase: "VERIFY_SUBMISSION", semantic: "Confirmando envío…", lastSafeEvent: "submit-triggered", actionCompletedAt: now() }), effect: null };
   };
   api.onVerifiedSubmission = function onVerifiedSubmission(value, scan) {
     const workflow = api.sanitize(value);
@@ -363,6 +376,13 @@
     if (!workflow || !module || !validId(workflow.currentFeedbackId)) return { workflow, effect: null };
     const next = recordFeedback(workflow, { id: workflow.currentFeedbackId, name: null }, status, reason);
     return { workflow: touch(next, { phase: "RECHECK_SECTION", semantic: "Verificando módulo…", currentFeedbackId: keepFeedback ? workflow.currentFeedbackId : null, lastSafeEvent: reason }), effect: effect("NAVIGATE", { url: module.url }) };
+  };
+  api.recordTiming = function recordTiming(value, timing) {
+    const workflow = api.sanitize(value);
+    if (!workflow || !timing || typeof timing !== "object") return workflow;
+    const safe = {};
+    ["navigationStartedAt", "pageReadyAt", "scanAt", "actionStartedAt", "actionCompletedAt"].forEach((key) => { if (Number.isFinite(timing[key])) safe[key] = timing[key]; });
+    return { ...workflow, ...safe, updatedAt: now() };
   };
   api.clone = clone;
 })(globalThis);

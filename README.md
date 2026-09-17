@@ -8,7 +8,7 @@
 
 <br>
 
-<img src="https://img.shields.io/badge/version-0.5.0-0F766E?style=flat-square" alt="Versión 0.5.0" />
+<img src="https://img.shields.io/badge/version-0.6.0--beta-0F766E?style=flat-square" alt="Versión 0.6.0 beta" />
 <img src="https://img.shields.io/badge/estado-beta-D29922?style=flat-square" alt="Beta" />
 <img src="https://img.shields.io/badge/Manifest-V3-111827?style=flat-square&logo=googlechrome&logoColor=white" alt="Manifest V3" />
 <img src="https://img.shields.io/badge/Edge-compatible-111827?style=flat-square&logo=microsoftedge&logoColor=0AA0F4" alt="Microsoft Edge" />
@@ -75,7 +75,7 @@ Usa el mismo procedimiento desde `chrome://extensions`.
 4. Selecciona una materia.
 5. Marca los módulos deseados.
 6. Elige una valoración.
-7. Pulsa **Procesar N módulos**.
+7. Pulsa **Iniciar recorrido**.
 8. Revisa el resumen y pulsa **Ejecutar recorrido**.
 
 Valoraciones observadas en los Feedback de UIP:
@@ -115,7 +115,7 @@ La versión actual se mantiene en **beta** porque la estructura y disponibilidad
 
 Este proyecto se distribuye bajo la [MIT License](LICENSE).
 
-Copyright © 2026 Euris J. Rodríguez V.
+Copyright © 2026 UIP Student Assistant contributors.
 
 ---
 

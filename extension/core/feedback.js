@@ -5,6 +5,11 @@
     const text = typeof value === "string" ? value.replace(/\s+/g, " ").trim().toLocaleLowerCase() : "";
     return /^(por hacer|hecho|pendiente)\s*:/.test(text) || /\benviar retroalimentaci[oó]n\b/.test(text);
   };
+  const normalizedText = (value) => typeof value === "string" ? value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim().toLocaleLowerCase() : "";
+  const completedEvidence = (scope) => {
+    const value = normalizedText(core.text(scope, 2400));
+    return /(?:feedback|retroalimentacion).{0,80}(?:completad|respondid|enviad)|(?:completad|respondid|enviad).{0,80}(?:feedback|retroalimentacion)|(?:you have|has) (?:completed|submitted)/.test(value);
+  };
   core.activityPageName = function activityPageName(document, scope) {
     const heading = scope && scope.querySelector('[data-region="activity-information"] .activityname, [data-region="activity-information"] h1, .activity-header .activityname, .activity-header h1, [data-activityname]');
     const headingName = core.text(heading, 160);
@@ -45,12 +50,15 @@
       : editableResponse ? core.canonicalMoodleUrl(document.location.href, document.location.href, "/mod/feedback/complete.php") : null;
     const name = context.name || core.activityPageName(document, scope);
     const available = core.restriction(scope, { navigable: Boolean(url) }).available;
-    return { id: context.id, name, url, completionState: core.completionFor(scope, context.id), available, required: null, position: 1, canRespond: Boolean(responseUrl && (!responseLink || core.isDomVisible(responseLink))), responseUrl };
+    const canRespond = Boolean(responseUrl && (!responseLink || core.isDomVisible(responseLink)));
+    // Completion badges vary by account and course. The actual Feedback view is authoritative.
+    const capability = available === false ? "blocked" : canRespond || editableResponse ? "respondable" : completedEvidence(scope) ? "completed" : "unknown";
+    return { id: context.id, name, url, completionState: core.completionFor(scope, context.id), capability, available, required: null, position: 1, canRespond, responseUrl };
   };
   core.findFeedback = function findFeedback(activities, _document, errors) {
     return activities.filter((activity) => activity.type === "feedback").map((activity) => {
       try {
-        return { id: activity.id, name: activity.name, url: activity.url, completionState: activity.completionState, available: activity.available, required: activity.required === true ? true : null, position: activity.position };
+        return { id: activity.id, name: activity.name, url: activity.url, completionState: activity.completionState, capability: activity.capability || "unknown", available: activity.available, required: activity.required === true ? true : null, position: activity.position };
       } catch (_) { core.captureError(errors, "feedback-item"); return null; }
     }).filter(Boolean);
   };

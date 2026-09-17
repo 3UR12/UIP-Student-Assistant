@@ -87,7 +87,7 @@
       if (pageType === "COURSE" && mainScope) activities = core.scanActivities(mainScope, document, errors);
       if (pageType === "FEEDBACK" && mainScope) {
         feedbackPage = core.feedbackPageContext(document, mainScope);
-        activities = feedbackPage ? [{ id: feedbackPage.id, name: feedbackPage.name, type: "feedback", url: feedbackPage.url, completionState: feedbackPage.completionState, available: feedbackPage.available, restrictionText: null, position: 1, required: null }] : [];
+        activities = feedbackPage ? [{ id: feedbackPage.id, name: feedbackPage.name, type: "feedback", url: feedbackPage.url, completionState: feedbackPage.completionState, capability: feedbackPage.capability, available: feedbackPage.available, restrictionText: null, position: 1, required: null }] : [];
       }
     } catch (_) { core.captureError(errors, "activities"); }
     try { feedback = core.findFeedback(activities, document, errors); } catch (_) { core.captureError(errors, "feedback"); }

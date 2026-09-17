@@ -1,5 +1,58 @@
 /* Moodle executor: the background owns workflow decisions; this script owns DOM primitives. */
 let discoverySettlement = null;
+let pageSettlement = null;
+
+function pageReadyFor(expectedKind, scan) {
+  if (!scan || scan.sessionApparentlyNotStarted === true) return true;
+  if (expectedKind === "SECTION") return scan.pageType === "SECTION" && Array.isArray(scan.feedback) && scan.feedback.length > 0;
+  if (expectedKind === "FEEDBACK") return scan.pageType === "FEEDBACK" && Boolean(scan.feedbackPage) && (scan.feedbackPage.canRespond === true || ["completed", "blocked"].includes(scan.feedbackPage.capability) || scan.feedbackForm && scan.feedbackForm.detected === true);
+  if (expectedKind === "FORM") return scan.pageType === "FEEDBACK" && Boolean(scan.feedbackForm && scan.feedbackForm.detected === true);
+  if (expectedKind === "POST_SUBMIT") return scan.pageType === "FEEDBACK" && Boolean(scan.feedbackResult && (scan.feedbackResult.submissionVerified === true || scan.feedbackResult.continueAction && scan.feedbackResult.continueAction.detected));
+  return false;
+}
+function stopRelevantPageState() {
+  if (!pageSettlement) return;
+  if (pageSettlement.timer) clearTimeout(pageSettlement.timer);
+  if (pageSettlement.debounce) clearTimeout(pageSettlement.debounce);
+  if (pageSettlement.observer) pageSettlement.observer.disconnect();
+  pageSettlement = null;
+}
+function emitRelevantPageState(expectedKind, requestId, reason, scan) {
+  scan.pageSettled = true;
+  chrome.runtime.sendMessage({ type: "UIP_MOODLE_PAGE_SETTLED", expectedKind, requestId, reason, pageReadyAt: Date.now(), scannerVersion: scan.scannerVersion, pageType: scan.pageType, scan }).catch(() => undefined);
+}
+function observeRelevantPageState(options) {
+  const expectedKind = options && options.expectedKind;
+  const requestId = options && options.requestId;
+  const maxMs = Number.isFinite(options && options.maxMs) ? Math.max(500, Math.min(12000, options.maxMs)) : 9000;
+  if (!(["SECTION", "FEEDBACK", "FORM", "POST_SUBMIT"].includes(expectedKind)) || typeof requestId !== "string" || !requestId) return { ok: false, error: "Invalid page settlement request." };
+  if (pageSettlement && pageSettlement.expectedKind === expectedKind && pageSettlement.requestId === requestId) return { ok: true, alreadyObserving: true };
+  stopRelevantPageState();
+  const initialUrl = document.location.href;
+  const finish = (reason) => {
+    if (!pageSettlement || pageSettlement.expectedKind !== expectedKind || pageSettlement.requestId !== requestId) return;
+    const scan = globalThis.UIPScannerCore.scanDocument(document);
+    stopRelevantPageState();
+    if (document.location.href === initialUrl) emitRelevantPageState(expectedKind, requestId, reason, scan);
+  };
+  const initial = globalThis.UIPScannerCore.scanDocument(document);
+  if (pageReadyFor(expectedKind, initial)) { emitRelevantPageState(expectedKind, requestId, "evidence-ready", initial); return { ok: true, settledImmediately: true }; }
+  const scope = document.body || document.documentElement;
+  if (!scope || typeof MutationObserver !== "function") { emitRelevantPageState(expectedKind, requestId, "settled-timeout", initial); return { ok: true, settledImmediately: true }; }
+  const observer = new MutationObserver(() => {
+    if (!pageSettlement || pageSettlement.debounce) return;
+    pageSettlement.debounce = setTimeout(() => {
+      if (!pageSettlement) return;
+      pageSettlement.debounce = null;
+      const scan = globalThis.UIPScannerCore.scanDocument(document);
+      if (pageReadyFor(expectedKind, scan)) finish("evidence-ready");
+    }, 120);
+  });
+  pageSettlement = { expectedKind, requestId, observer, timer: null, debounce: null };
+  observer.observe(scope, { childList: true, subtree: true, attributes: true, attributeFilter: ["class", "hidden", "aria-hidden", "aria-disabled", "href"] });
+  pageSettlement.timer = setTimeout(() => finish("settled-timeout"), maxMs);
+  return { ok: true };
+}
 
 function scanDiscoveryItems(kind) {
   const scan = globalThis.UIPScannerCore.scanDocument(document);
@@ -61,6 +114,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     try { sendResponse(beginDiscoverySettlement(message)); } catch (_) { sendResponse({ ok: false, error: "Discovery settlement could not start." }); }
     return false;
   }
+  if (message.type === "UIP_OBSERVE_RELEVANT_PAGE_STATE") {
+    try { sendResponse(observeRelevantPageState(message)); } catch (_) { sendResponse({ ok: false, error: "Page settlement could not start." }); }
+    return false;
+  }
   if (message.type === "UIP_SCAN_CURRENT_DOCUMENT") {
     try {
       const scan = globalThis.UIPScannerCore.scanDocument(document);
@@ -100,6 +157,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         return false;
       }
       const submitResult = globalThis.UIPScannerCore.submitFeedback(document, expected);
+      if (submitResult && submitResult.submitTriggered === true) observeRelevantPageState({ expectedKind: "POST_SUBMIT", requestId: `submit-${expected.feedbackId}-${Date.now()}`, maxMs: 9000 });
       sendResponse({ ok: true, submitResult });
     } catch (_) { sendResponse({ ok: false, error: "The Feedback was not submitted." }); }
     return false;
@@ -177,12 +235,16 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 /* A page-ready signal lets the persistent engine continue after Moodle navigation. */
 try {
   const readyScan = globalThis.UIPScannerCore.scanDocument(document);
+  const initialKind = readyScan.pageType === "SECTION" ? "SECTION" : /\/mod\/feedback\/complete\.php$/i.test(document.location.pathname || "") ? "FORM" : readyScan.pageType === "FEEDBACK" ? "FEEDBACK" : null;
+  readyScan.pageSettled = !initialKind || pageReadyFor(initialKind, readyScan);
   chrome.runtime.sendMessage({
     type: "UIP_MOODLE_PAGE_READY",
+    pageReadyAt: Date.now(),
     scannerVersion: readyScan.scannerVersion,
     pageType: readyScan.pageType,
     scan: readyScan
   }).catch(() => undefined);
+  if (initialKind && readyScan.pageSettled !== true) observeRelevantPageState({ expectedKind: initialKind, requestId: `ready-${initialKind}-${Date.now()}`, maxMs: 9000 });
 } catch (_) {
   chrome.runtime.sendMessage({ type: "UIP_MOODLE_PAGE_READY", scannerVersion: globalThis.UIPScannerCore.VERSION, pageType: "OTHER" }).catch(() => undefined);
 }

@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "UIP Student Assistant",
-  "version": "0.5.0",
-  "description": "Automated Multi-Module Feedback Processor for Moodle UIP.",
+  "version": "0.6.0",
+  "description": "Procesa encuestas Feedback compatibles en Moodle UIP.",
   "permissions": ["storage", "alarms"],
   "background": { "service_worker": "background/workflow-service.js" },
   "host_permissions": ["https://moodle.uip.edu.pa/*"],

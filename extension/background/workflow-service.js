@@ -1,4 +1,4 @@
-/* v0.5 background owner: persistent state, worker tab, and single-flight automation. */
+/* v0.6 background owner: persistent state, worker tab, and single-flight automation. */
 importScripts("../background/automation-engine.js");
 
 const WORKFLOW_KEY = "uip.automation.v2";
@@ -8,7 +8,7 @@ const DISCOVERY_TIMEOUT_ALARM = "uip.automation.discovery.timeout";
 const MOODLE_ORIGIN = "https://moodle.uip.edu.pa";
 const MOODLE_HOME = `${MOODLE_ORIGIN}/my/`;
 const MOODLE_MY_COURSES = `${MOODLE_ORIGIN}/my/courses.php`;
-const WAIT_TIMEOUT_MINUTES = 0.5;
+const WAIT_TIMEOUT_MINUTES = 10 / 60;
 const DISCOVERY_TIMEOUT_MINUTES = 0.25;
 let dashboardTabId = null;
 let scanPumpRunning = false;
@@ -134,7 +134,7 @@ async function ensureWorker(preferredTabId, initialUrl = MOODLE_HOME) {
   }
   // Never redirect an arbitrary Moodle tab the student is using. A worker is
   // either one we already persisted or a dedicated tab owned by this flow.
-  return tabsCreate({ url: initialUrl, active: true });
+  return tabsCreate({ url: initialUrl, active: false });
 }
 async function armWatchdog(workflow) {
   if (!workflow || workflow.status !== "RUNNING") { await chrome.alarms.clear(WATCHDOG_ALARM); return; }
@@ -152,11 +152,17 @@ async function executeEffect(workflow, action) {
   if (!workflow || !action || !Number.isInteger(workflow.workerTabId)) return;
   if (action.type === "NAVIGATE") {
     if (!isMoodleUrl(action.url)) return;
-    await tabsUpdate(workflow.workerTabId, { url: action.url });
+    const timed = engine.recordTiming(workflow, { navigationStartedAt: Date.now() });
+    const saved = await saveWorkflow(timed);
+    if (!saved.ok) return;
+    await tabsUpdate(saved.workflow.workerTabId, { url: action.url, active: false });
     return;
   }
   if (action.type === "PROCESS_SCAN") { await enqueueScan(workflow.workerTabId, action.scan); return; }
   if (action.type === "SCAN") { await scanWorker(workflow.workerTabId); return; }
+  const timed = engine.recordTiming(workflow, { actionStartedAt: Date.now() });
+  const timingSaved = await saveWorkflow(timed);
+  if (!timingSaved.ok) return;
   let response = null;
   if (action.type === "PREFILL") response = await sendToWorker(workflow.workerTabId, { ...action, type: "UIP_PREFILL_FEEDBACK" });
   if (action.type === "SUBMIT") response = await sendToWorker(workflow.workerTabId, { ...action, type: "UIP_SUBMIT_FEEDBACK" });
@@ -255,14 +261,18 @@ async function processScan(tabId, scan) {
     if (!loaded.ok) return;
     if (!loaded.workflow || !["RUNNING", "LOGIN_REQUIRED"].includes(loaded.workflow.status)) { await handleDiscovery(tabId, scan); return; }
     if (loaded.workflow.workerTabId !== tabId) return;
-    if (loaded.workflow.status === "LOGIN_REQUIRED" && scan.sessionApparentlyNotStarted !== true) { await applyTransition(engine.resume(loaded.workflow)); return; }
-    await applyTransition(engine.onScan(loaded.workflow, scan));
+    const timed = engine.recordTiming(loaded.workflow, { pageReadyAt: Number.isFinite(scan.__uipPageReadyAt) ? scan.__uipPageReadyAt : Date.now(), scanAt: Date.now() });
+    const timingSaved = await saveWorkflow(timed);
+    if (!timingSaved.ok) return;
+    if (timed.status === "LOGIN_REQUIRED" && scan.sessionApparentlyNotStarted !== true) { await applyTransition(engine.resume(timed)); return; }
+    await applyTransition(engine.onScan(timed, scan));
   } catch (_) {
     // The watchdog remains armed for RUNNING workflows if a scan cannot be processed.
   }
 }
-async function enqueueScan(tabId, scan) {
+async function enqueueScan(tabId, scan, pageReadyAt) {
   if (!Number.isInteger(tabId) || !scan || typeof scan !== "object") return;
+  if (Number.isFinite(pageReadyAt)) scan = { ...scan, __uipPageReadyAt: pageReadyAt };
   const key = JSON.stringify({
     pageType: scan.pageType || null,
     courseId: scan.course && scan.course.id || null,
@@ -325,6 +335,11 @@ async function selectCourse(course) {
   if (!found) return { ok: false, error: "course-not-observed" };
   const worker = await ensureWorker();
   if (!worker) return { ok: false, error: "worker-unavailable" };
+  if (discovery.discovery.course && discovery.discovery.course.id === found.id && Array.isArray(discovery.discovery.modules) && discovery.discovery.modules.length) {
+    const cached = await persistDiscovery({ ...discovery.discovery, status: "modules-ready", workerTabId: worker.id, error: null });
+    if (cached.ok) await scanWorker(worker.id);
+    return cached.ok ? { ok: true, workerTabId: worker.id, cached: true } : cached;
+  }
   const loading = await persistDiscovery({ ...discovery.discovery, status: "loading-modules", requestId: `modules-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`, workerTabId: worker.id, settlement: null, startedAt: Date.now(), course: found, modules: [], error: null });
   if (!loading.ok) return loading;
   if (!await tabsUpdate(worker.id, { url: found.url })) {
@@ -404,7 +419,8 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message) return undefined;
   const respond = (promise) => { Promise.resolve(promise).then(sendResponse).catch(() => sendResponse({ ok: false, error: "background-unavailable" })); return true; };
-  if (message.type === "UIP_MOODLE_PAGE_READY") { enqueueScan(sender.tab && sender.tab.id, message.scan || null); return false; }
+  if (message.type === "UIP_MOODLE_PAGE_READY") { enqueueScan(sender.tab && sender.tab.id, message.scan || null, message.pageReadyAt); return false; }
+  if (message.type === "UIP_MOODLE_PAGE_SETTLED") { enqueueScan(sender.tab && sender.tab.id, message.scan || null, message.pageReadyAt); return false; }
   if (message.type === "UIP_MOODLE_DISCOVERY_SETTLED") { handleDiscoverySettlement(sender.tab && sender.tab.id, message); return false; }
   if (message.type === "UIP_AUTOMATION_GET_STATE") return respond(currentState());
   if (message.type === "UIP_AUTOMATION_DISCOVER_COURSES") return respond(beginCourseDiscovery(sender));

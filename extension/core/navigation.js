@@ -53,9 +53,10 @@
     const feedbackId = feedbackPage && feedbackPage.id || resolved && resolved.id;
     if (!feedbackId || !/^\/mod\/feedback\/(?:view|complete)\.php$/i.test(document.location.pathname || "")) return null;
     const editable = Boolean(core.findFeedbackResponseForm(document));
-    const completionState = feedbackPage && feedbackPage.completionState || core.completionFor(scope, feedbackId);
+    const completionState = feedbackPage && feedbackPage.completionState || "unknown";
     const confirmation = !editable && Boolean(scope && scope.querySelector && scope.querySelector('.alert-success, [role="status"].alert-success, [data-region="feedback-complete"], .feedback-complete'));
-    const state = completionState === "completed" ? "completed" : editable ? "still-editable" : confirmation ? "confirmation" : "unknown";
+    // A section completion widget is not proof that this Feedback is complete.
+    const state = editable ? "still-editable" : confirmation || feedbackPage && feedbackPage.capability === "completed" ? "completed" : "unknown";
     const continueAction = state === "completed" || state === "confirmation" ? core.inspectContinueAction(document, scope) : { detected: false, unique: false, kind: null, label: null, destinationPath: null, method: null, url: null, signature: null };
     return { feedbackId, state, completionState, submissionVerified: state === "completed" || state === "confirmation" ? true : state === "still-editable" ? false : null, continueAction };
   };

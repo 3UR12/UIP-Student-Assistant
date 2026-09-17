@@ -14,6 +14,7 @@
   let refreshQueued = false;
   let discoveryRequestRunning = false;
   let startRequestRunning = false;
+  let moduleFilter = "";
   let initialized = false;
   let lastUiError = null;
   const send = (message) => new Promise((resolve) => chrome.runtime.sendMessage(message, (response) => resolve(chrome.runtime.lastError ? { ok: false, error: "background-unavailable" } : response || { ok: false, error: "background-unavailable" })));
@@ -21,10 +22,11 @@
   const escape = (value) => String(value || "").replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[character]);
   const selectedIds = () => Array.from(selectedModuleIds);
   const visibleModules = (discovery) => (discovery && discovery.modules || []).filter((module) => module.name && !/^(general|secci[oó]n general|general section)$/i.test(module.name));
+  const normalized = (value) => String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase();
   const phaseLabel = (phase) => ({ OPEN_SECTION: "Abriendo módulo", WAIT_SECTION: "Esperando apertura del módulo", SCAN_SECTION: "Revisando módulo", OPEN_FEEDBACK: "Abriendo encuesta", WAIT_FEEDBACK: "Esperando apertura de la encuesta", SCAN_FEEDBACK: "Revisando encuesta", OPEN_FORM: "Abriendo formulario", WAIT_FORM: "Esperando apertura del formulario", PREFILL: "Aplicando valoración", VERIFY_FORM: "Verificando respuestas", SUBMIT: "Enviando Feedback", VERIFY_SUBMISSION: "Confirmando envío en Moodle", CONTINUE: "Continuando en Moodle", RECHECK_SECTION: "Verificando el módulo", NEXT_MODULE: "Preparando siguiente módulo" })[phase] || "Procesando recorrido";
   const outcomeLabel = (reason) => ({ "no-feedback": "No se encontraron Feedback compatibles.", "module-blocked": "Moodle indicó que este módulo no está disponible.", "feedback-blocked": "El Feedback no está disponible en Moodle.", "feedback-unknown": "Moodle no pudo confirmar el estado del Feedback.", "response-form-unavailable": "No se pudo confirmar el acceso al formulario automáticamente.", "form-not-compatible": "No se pudo verificar el formulario automáticamente.", "prefill-unverified": "No se pudo verificar la valoración aplicada automáticamente.", "submit-not-triggered": "No se pudo confirmar la acción de envío.", "step-timeout": "Moodle tardó demasiado en responder durante este paso." })[reason] || null;
-  const elapsed = (timestamp) => Math.max(0, Math.floor((Date.now() - Number(timestamp || Date.now())) / 1000));
-  const ago = (timestamp) => { const seconds = elapsed(timestamp); return seconds < 2 ? "ahora" : `hace ${seconds} s`; };
+  const elapsed = (timestamp) => Math.max(0, (Date.now() - Number(timestamp || Date.now())) / 1000);
+  const ago = (timestamp) => { const seconds = elapsed(timestamp); return seconds < 2 ? "ahora" : `hace ${Math.floor(seconds)} s`; };
   const statusMessage = (code) => ({ "login-required": "Necesitas iniciar sesión en Moodle.", "worker-tab-closed": "La pestaña de Moodle se cerró.", "course-mismatch": "Moodle abrió otra materia.", "workflow-storage-unavailable": "No se pudo guardar el recorrido en esta sesión.", "worker-unavailable": "No se pudo abrir la pestaña Moodle.", "course-not-ready": "Selecciona una materia antes de continuar.", "course-not-observed": "La materia ya no está disponible; actualiza la lista.", "invalid-configuration": "Selecciona módulos disponibles y una valoración.", "run-already-active": "Ya hay un recorrido activo." })[code] || "No se pudo completar esta acción.";
   function show(view) { [ui.setup, ui.running, ui.paused, ui.done].forEach((element) => element.classList.toggle("hidden", element !== view)); }
   function renderCourses() {
@@ -45,7 +47,8 @@
   }
   function renderModules() {
     const discovery = state.discovery || {};
-    const modules = visibleModules(discovery);
+    const allModules = visibleModules(discovery);
+    const modules = allModules.filter((module) => !moduleFilter || normalized(module.name).includes(normalized(moduleFilter)));
     const available = modules.filter((module) => module.selectable === true);
     ui.fieldset.disabled = !modules.length;
     ui.modules.innerHTML = modules.map((module) => {
@@ -54,13 +57,13 @@
       const checked = selectable && selectedModuleIds.has(String(module.id)) ? "checked" : "";
       return `<label class="module-row${selectable ? "" : " locked"}" for="${id}"><input id="${id}" type="checkbox" value="${escape(module.id)}" ${checked} ${selectable ? "" : "disabled"}><span><strong>${escape(module.name || "Módulo sin nombre")}</strong><span>${escape(moduleReason(module))}</span></span></label>`;
     }).join("");
-    ui.count.textContent = modules.length ? `${selectedIds().length} seleccionados de ${available.length} disponibles` : discovery.status === "loading-modules" ? "Cargando módulos de la materia…" : discovery.status === "modules-ready" ? "No se encontraron módulos disponibles." : "Selecciona una materia para cargar sus módulos.";
+    ui.count.textContent = allModules.length ? `${selectedIds().length} seleccionados de ${allModules.filter((module) => module.selectable === true).length} disponibles${moduleFilter ? ` · ${modules.length} visibles` : ""}` : discovery.status === "loading-modules" ? "Cargando módulos…" : discovery.status === "modules-ready" ? "No se encontraron módulos disponibles." : "Selecciona una materia para cargar sus módulos.";
   }
   function renderSetup() {
     renderCourses(); renderModules();
     const modules = visibleModules(state.discovery);
     const selected = selectedIds(); const hasRating = Boolean(ui.rating.value); const hasCourse = Boolean(ui.course.value); const ready = state.discovery.status === "modules-ready" && hasCourse && selected.length > 0 && hasRating;
-    ui.prepare.textContent = `Procesar ${selected.length} módulo${selected.length === 1 ? "" : "s"}`;
+    ui.prepare.textContent = startRequestRunning ? "Iniciando…" : "Iniciar recorrido";
     ui.prepare.disabled = !ready;
     ui.setupReason.textContent = !hasCourse ? "Selecciona una materia para cargar sus módulos." : state.discovery.status === "loading-modules" ? "Cargando módulos de la materia…" : state.discovery.status === "modules-ready" && !modules.length ? "No se encontraron módulos disponibles." : selected.length === 0 ? "Selecciona al menos un módulo disponible." : !hasRating ? "Selecciona una valoración para continuar." : "El recorrido usará una sola confirmación antes de comenzar.";
     renderConfirmation();
@@ -71,6 +74,7 @@
   function renderConfirmation() {
     ui.confirmation.classList.toggle("hidden", !confirmationOpen);
     $("#start-run").disabled = !canStartConfiguredRun();
+    $("#start-run").textContent = startRequestRunning ? "Iniciando…" : "Ejecutar recorrido";
   }
   function renderProgress(workflow) {
     const progress = workflow.progress || {}; const total = progress.total || 0; const reviewed = progress.reviewed || 0;
@@ -84,7 +88,7 @@
     ui.currentAction.textContent = stepSeconds > 10 ? `Moodle está tardando más de lo habitual. ${phaseLabel(workflow.phase)}…` : workflow.semantic || phaseLabel(workflow.phase);
     $("#moodle-connection").textContent = workflow.workerConnected ? "Conectado" : "Pestaña cerrada";
     $("#last-activity").textContent = ago(workflow.lastActivityAt || workflow.updatedAt);
-    $("#step-elapsed").textContent = `${stepSeconds} s`;
+    $("#step-elapsed").textContent = `${stepSeconds.toFixed(1)} s`;
     $("#metric-submitted").textContent = progress.submitted || 0; $("#metric-completed").textContent = progress.alreadyCompleted || 0; $("#metric-empty").textContent = progress.noFeedback || 0; $("#metric-blocked").textContent = progress.skipped || 0; $("#metric-manual").textContent = progress.manualRequired || 0; $("#metric-failed").textContent = progress.failed || 0;
     const problem = workflow.lastError && workflow.lastError.message;
     ui.problem.textContent = problem || ""; ui.problem.classList.toggle("hidden", !problem);
@@ -103,7 +107,7 @@
   function render() {
     const workflow = state.workflow;
     const discovery = state.discovery || {};
-    ui.technical.textContent = JSON.stringify({ status: workflow && workflow.status || "SETUP", phase: workflow && workflow.phase || "DISCOVERY", transition: workflow && workflow.transition || null, runId: workflow && workflow.runId && workflow.runId.slice(0, 18) || null, courseId: workflow && workflow.course && workflow.course.id || discovery.course && discovery.course.id || null, workerConnected: workflow && workflow.workerConnected || false, lastEvent: workflow && workflow.lastSafeEvent || null, stepStartedAt: workflow && workflow.stepStartedAt || null, watchdogRetries: workflow && workflow.waitRetries || 0, progress: workflow && workflow.progress || null, terminalOutcome: workflow && workflow.terminalOutcome || null, moduleOutcomes: workflow && workflow.moduleOutcomes || [], lastError: workflow && workflow.lastError || null, discoveryStatus: discovery.status || "idle", discoveryRequestId: discovery.requestId && discovery.requestId.slice(0, 18) || null, discoverySource: discovery.discoverySource || null, discoveryFallbackUsed: discovery.fallbackUsed === true, discoveryWorkerConnected: Number.isInteger(discovery.workerTabId), courseCount: (discovery.courses || []).length, courseDiscovery: discovery.courseDiscovery || null, moduleCount: (discovery.modules || []).length, discoveryStartedAt: discovery.startedAt || null, discoveryError: discovery.error || null, uiError: lastUiError }, null, 2);
+    ui.technical.textContent = JSON.stringify({ status: workflow && workflow.status || "SETUP", phase: workflow && workflow.phase || "DISCOVERY", transition: workflow && workflow.transition || null, runId: workflow && workflow.runId && workflow.runId.slice(0, 18) || null, courseId: workflow && workflow.course && workflow.course.id || discovery.course && discovery.course.id || null, workerConnected: workflow && workflow.workerConnected || false, currentModuleId: workflow && workflow.currentModule && workflow.currentModule.id || null, currentFeedbackId: workflow && workflow.currentFeedback && workflow.currentFeedback.id || null, capability: workflow && workflow.currentFeedback && workflow.currentFeedback.capability || null, observedCompletion: workflow && workflow.currentFeedback && workflow.currentFeedback.observedCompletion || null, lastEvent: workflow && workflow.lastSafeEvent || null, stepStartedAt: workflow && workflow.stepStartedAt || null, navigationStartedAt: workflow && workflow.navigationStartedAt || null, pageReadyAt: workflow && workflow.pageReadyAt || null, scanAt: workflow && workflow.scanAt || null, actionStartedAt: workflow && workflow.actionStartedAt || null, actionCompletedAt: workflow && workflow.actionCompletedAt || null, timeInStepSeconds: workflow && workflow.stepStartedAt ? elapsed(workflow.stepStartedAt).toFixed(1) : null, watchdogRetries: workflow && workflow.waitRetries || 0, progress: workflow && workflow.progress || null, terminalOutcome: workflow && workflow.terminalOutcome || null, moduleOutcomes: workflow && workflow.moduleOutcomes || [], lastError: workflow && workflow.lastError || null, discoveryStatus: discovery.status || "idle", discoveryRequestId: discovery.requestId && discovery.requestId.slice(0, 18) || null, discoverySource: discovery.discoverySource || null, discoveryFallbackUsed: discovery.fallbackUsed === true, discoveryWorkerConnected: Number.isInteger(discovery.workerTabId), courseCount: (discovery.courses || []).length, moduleCount: (discovery.modules || []).length, discoveryError: discovery.error || null, uiError: lastUiError }, null, 2);
     if (!workflow || ["READY_TO_START", "CANCELLED"].includes(workflow.status)) { if (workflow && workflow.status === "CANCELLED") { confirmationOpen = false; startRequestRunning = false; } show(ui.setup); renderSetup(); return; }
     if (workflow.status === "DONE") { confirmationOpen = false; startRequestRunning = false; show(ui.done); renderDone(workflow); return; }
     if (["PAUSED", "LOGIN_REQUIRED", "ERROR"].includes(workflow.status)) {
@@ -213,11 +217,12 @@
     const workflow = state.workflow;
     if (!workflow || !["RUNNING", "PAUSED"].includes(workflow.status)) return;
     $("#last-activity").textContent = ago(workflow.lastActivityAt || workflow.updatedAt);
-    $("#step-elapsed").textContent = `${elapsed(workflow.stepStartedAt)} s`;
+    $("#step-elapsed").textContent = `${elapsed(workflow.stepStartedAt).toFixed(1)} s`;
   }
   $("#retry-courses").addEventListener("click", handleCourseAction);
   ui.course.addEventListener("change", async () => { const course = (state.discovery.courses || []).find((item) => item.id === ui.course.value); if (!course) return; selectedModuleIds = new Set(); confirmationOpen = false; setNotice("Abriendo materia y cargando módulos…"); await send({ type: "UIP_AUTOMATION_SELECT_COURSE", course }); });
   ui.modules.addEventListener("change", () => { selectedModuleIds = new Set(Array.from(ui.modules.querySelectorAll("input:checked")).map((input) => input.value)); safeRender(); });
+  $("#module-search").addEventListener("input", (event) => { moduleFilter = event.target.value; renderModules(); });
   ui.rating.addEventListener("change", safeRender);
   $("#select-all").addEventListener("click", () => { selectedModuleIds = new Set(Array.from(ui.modules.querySelectorAll("input:not(:disabled)")).map((input) => input.value)); safeRender(); });
   $("#clear-all").addEventListener("click", () => { selectedModuleIds = new Set(); safeRender(); });
