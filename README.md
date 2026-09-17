@@ -27,8 +27,6 @@
 
 UIP Student Assistant detecta las materias disponibles en Moodle, carga sus módulos y permite iniciar un recorrido automático sobre los Feedback compatibles.
 
-El flujo normal es:
-
 ```text
 Abrir la extensión
       ↓
@@ -45,25 +43,13 @@ Procesamiento automático
 Resumen por módulo
 ```
 
-Durante el recorrido la extensión puede:
-
-- descubrir materias y módulos desde Moodle;
-- detectar actividades Feedback por su URL real de Moodle;
-- conservar respuestas que ya estaban seleccionadas;
-- aplicar la valoración elegida únicamente en preguntas compatibles;
-- verificar el formulario antes de enviarlo;
-- comprobar que Moodle confirmó el envío;
-- continuar con la siguiente encuesta o módulo;
-- omitir módulos que Moodle indique como no disponibles;
-- pausar de forma segura cuando una situación necesita revisión manual.
+Durante el recorrido puede descubrir materias y módulos, detectar actividades Feedback, conservar respuestas existentes, aplicar la valoración elegida en preguntas compatibles, verificar el formulario antes del envío, confirmar el resultado en Moodle y continuar con el siguiente módulo.
 
 No es necesario abrir previamente el Área personal, una materia o un módulo. La extensión utiliza una pestaña de Moodle dedicada para el recorrido.
 
 ---
 
 ## Instalación
-
-La extensión se instala actualmente de forma manual.
 
 ### Microsoft Edge
 
@@ -72,14 +58,12 @@ La extensión se instala actualmente de forma manual.
 3. Abre `edge://extensions`.
 4. Activa **Modo para desarrolladores**.
 5. Pulsa **Cargar descomprimida**.
-6. Selecciona la carpeta `extension/` del proyecto.
+6. Selecciona la carpeta `extension/`.
 7. Opcionalmente, fija **UIP Student Assistant** en la barra del navegador.
 
 ### Google Chrome
 
-El procedimiento es el mismo utilizando `chrome://extensions`.
-
-> Las instrucciones ampliadas están en [`docs/INSTALLATION.md`](docs/INSTALLATION.md).
+Usa el mismo procedimiento desde `chrome://extensions`.
 
 ---
 
@@ -88,17 +72,13 @@ El procedimiento es el mismo utilizando `chrome://extensions`.
 1. Inicia sesión normalmente en `https://moodle.uip.edu.pa/`.
 2. Abre **UIP Student Assistant** desde el menú de extensiones.
 3. Espera a que se carguen las materias.
-4. Selecciona la materia que quieres procesar.
+4. Selecciona una materia.
 5. Marca los módulos deseados.
 6. Elige una valoración.
 7. Pulsa **Procesar N módulos**.
 8. Revisa el resumen y pulsa **Ejecutar recorrido**.
 
-A partir de ese momento el dashboard muestra el módulo actual, la encuesta detectada, el progreso y cualquier incidencia que requiera atención.
-
-### Valoraciones compatibles
-
-La extensión trabaja con las opciones observadas en los Feedback de UIP:
+Valoraciones observadas en los Feedback de UIP:
 
 - Excelente
 - Muy Bueno
@@ -112,23 +92,11 @@ La valoración seleccionada no reemplaza respuestas existentes.
 
 ## Privacidad y seguridad
 
-UIP Student Assistant utiliza la sesión de Moodle que ya está iniciada en el navegador.
+UIP Student Assistant utiliza la sesión de Moodle ya iniciada en el navegador. No solicita ni almacena usuario, contraseña, cookies, `sesskey`, tokens de autenticación, HTML completo ni contenido completo de formularios.
 
-No solicita ni almacena:
+El estado temporal del recorrido se mantiene en `chrome.storage.session`. Los permisos del navegador se limitan al dominio `https://moodle.uip.edu.pa/*` y a las capacidades necesarias para mantener el flujo y sus tiempos de espera.
 
-- usuario o contraseña;
-- cookies;
-- `sesskey`;
-- tokens de autenticación;
-- HTML completo de Moodle;
-- contenido completo de formularios;
-- información en un servidor externo.
-
-El estado temporal del recorrido se mantiene con `chrome.storage.session` y los permisos del navegador se limitan a `https://moodle.uip.edu.pa/*`.
-
-La extensión valida nuevamente la página y los controles antes de ejecutar acciones sensibles como enviar un Feedback o continuar después de un envío.
-
-Consulta [`docs/SECURITY.md`](docs/SECURITY.md) para más información.
+Antes de enviar un Feedback, la extensión vuelve a validar la página, el formulario y el control de envío. Un resultado sólo se considera enviado cuando Moodle muestra evidencia posterior al submit.
 
 ---
 
@@ -139,7 +107,7 @@ Consulta [`docs/SECURITY.md`](docs/SECURITY.md) para más información.
 - Manifest V3.
 - Moodle UIP en `moodle.uip.edu.pa`.
 
-La versión actual se mantiene en **beta** porque la estructura de Moodle puede variar entre materias, configuraciones y cuentas. Cuando una página no puede verificarse con seguridad, la extensión evita asumir el resultado y puede dejar el módulo para revisión.
+La versión actual se mantiene en **beta** porque la estructura y disponibilidad de Moodle pueden variar entre materias y cuentas. Si una página no puede verificarse de forma segura, la extensión evita asumir el resultado.
 
 ---
 
