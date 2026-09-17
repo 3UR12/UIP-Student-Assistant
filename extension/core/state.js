@@ -2,7 +2,7 @@
 (function attachState(global) {
   const core = global.UIPScannerCore = global.UIPScannerCore || {};
 
-  core.VERSION = "0.5.0";
+  core.VERSION = "0.6.0";
   core.selectors = {
     courseLinks: 'a[href*="/course/view.php"]',
     courseBreadcrumbLinks: '#page-navbar a[href*="/course/view.php"], .breadcrumb a[href*="/course/view.php"], nav[aria-label="breadcrumb"] a[href*="/course/view.php"]',
@@ -11,7 +11,7 @@
     sectionContainers: '[data-for="course_section"], [data-sectionid], .course-section, li[id^="section-"], .section[id^="section-"]',
     activityContainers: '.activity, [data-activityname], [data-activity-id]',
     restricted: '.availabilityinfo, .availability, .restricted, [data-availability], .dimmed',
-    completion: '.completioninfo, .completion-status, [data-completion], [data-for="completioninfo"], [data-region="completion"], [data-region="completion-info"], [data-for="completion-info"]',
+    completion: '.completioninfo, .completion-status, [data-completion], [data-completionstate], [data-for="completioninfo"], [data-region="completion"], [data-region="completion-info"], [data-for="completion-info"]',
     courseName: '.coursename, .course-title, [data-region="course-content"] h1, #page-header h1, h1'
   };
 
@@ -52,8 +52,6 @@
   };
 
   core.isExcludedRegion = function isExcludedRegion(element) {
-    // Course cards may live in an aside in the UIP theme. Exclude only regions
-    // Moodle identifies as navigation, drawers, or footer chrome.
     return Boolean(core.closest(element, '#page-footer, #page-navbar, footer, .drawer, [data-region="drawer"], [data-region="courseindex"], .block_navigation, .block_settings, nav[aria-label], nav[role="navigation"]'));
   };
 
@@ -95,10 +93,17 @@
     const related = cmid && nodes.filter((node) => ["data-cmid", "data-activity-id", "data-module-id"].some((attribute) => node.getAttribute(attribute) === String(cmid)));
     const node = related && related.length ? related[0] : (cmid && nodes.length !== 1 ? null : nodes[0]);
     if (!node) return "unknown";
-    const evidence = [node.getAttribute && node.getAttribute("aria-label"), core.text(node, 200), node.className]
-      .filter(Boolean).join(" ").toLowerCase();
-    if (/\b(hecho|completado|completed|complete|done)\b/.test(evidence)) return "completed";
-    if (/\b(por hacer|pendiente|incomplete|notcompleted|todo)\b/.test(evidence)) return "incomplete";
+    const evidence = [
+      node.getAttribute && node.getAttribute("aria-label"),
+      node.getAttribute && node.getAttribute("title"),
+      node.getAttribute && node.getAttribute("data-completion"),
+      node.getAttribute && node.getAttribute("data-completionstate"),
+      node.getAttribute && node.getAttribute("data-state"),
+      core.text(node, 200),
+      node.className
+    ].filter(Boolean).join(" ").toLowerCase();
+    if (/\b(hecho|completad[oa]|finalizad[oa]|completed|complete|done)\b/.test(evidence)) return "completed";
+    if (/\b(por hacer|pendiente|sin completar|incomplete|not completed|notcompleted|todo|to do)\b/.test(evidence)) return "incomplete";
     return "unknown";
   };
 
