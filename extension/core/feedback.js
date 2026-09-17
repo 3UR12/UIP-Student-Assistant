@@ -50,7 +50,10 @@
   core.findFeedback = function findFeedback(activities, _document, errors) {
     return activities.filter((activity) => activity.type === "feedback").map((activity) => {
       try {
-        return { id: activity.id, name: activity.name, url: activity.url, completionState: activity.completionState, available: activity.available, required: activity.required === true ? true : null, position: activity.position };
+        const completionState = activity.completionState === "unknown" && activity.available !== false && activity.url
+          ? "incomplete"
+          : activity.completionState;
+        return { id: activity.id, name: activity.name, url: activity.url, completionState, available: activity.available, required: activity.required === true ? true : null, position: activity.position };
       } catch (_) { core.captureError(errors, "feedback-item"); return null; }
     }).filter(Boolean);
   };
