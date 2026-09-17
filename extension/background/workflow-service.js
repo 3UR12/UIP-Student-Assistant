@@ -1,4 +1,4 @@
-/* v0.5 background owner: persistent state, worker tab, and single-flight automation. */
+/* v0.6 background owner: persistent state, worker tab, and single-flight automation. */
 importScripts("../background/automation-engine.js");
 
 const WORKFLOW_KEY = "uip.automation.v2";
@@ -132,8 +132,6 @@ async function ensureWorker(preferredTabId, initialUrl = MOODLE_HOME) {
     const tab = await tabsGet(discovery.discovery.workerTabId);
     if (tab && isMoodleUrl(tab.url)) return tab;
   }
-  // Never redirect an arbitrary Moodle tab the student is using. A worker is
-  // either one we already persisted or a dedicated tab owned by this flow.
   return tabsCreate({ url: initialUrl, active: true });
 }
 async function armWatchdog(workflow) {
@@ -152,6 +150,11 @@ async function executeEffect(workflow, action) {
   if (!workflow || !action || !Number.isInteger(workflow.workerTabId)) return;
   if (action.type === "NAVIGATE") {
     if (!isMoodleUrl(action.url)) return;
+    const currentTab = await tabsGet(workflow.workerTabId);
+    if (currentTab && currentTab.url === action.url && currentTab.status === "complete") {
+      await scanWorker(workflow.workerTabId);
+      return;
+    }
     await tabsUpdate(workflow.workerTabId, { url: action.url });
     return;
   }
@@ -209,8 +212,6 @@ async function handleDiscovery(tabId, scan) {
   if (discovery.status === "loading-courses") {
     const expectedPage = coursePageFor(discovery);
     if (scan.pageType !== expectedPage) {
-      // A redirected My Courses request can already be on /my/. Reuse that
-      // document as the one allowed fallback rather than navigating again.
       if (discovery.discoverySource === "my-courses" && scan.pageType === "AREA_PERSONAL") {
         const fallback = await useDashboardCourseFallback(discovery, false);
         if (fallback.ok) await handleDiscovery(tabId, scan);
@@ -277,7 +278,6 @@ async function enqueueScan(tabId, scan) {
   });
   if (activeScanKeys.get(tabId) === key) return;
   if (pendingScans.some((item) => item.tabId === tabId && item.key === key)) return;
-  // Identical observations coalesce; every distinct DOM state stays queued.
   pendingScans.push({ tabId, scan, key });
   if (scanPumpRunning) return;
   scanPumpRunning = true;
@@ -305,7 +305,6 @@ async function beginCourseDiscovery(sender) {
       return { ok: false, error: "worker-unavailable" };
     }
     const requestId = `courses-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-    // Keep last known courses visible while Moodle refreshes the source page.
     const loading = await persistDiscovery({ ...current.discovery, status: "loading-courses", requestId, workerTabId: worker.id, settlement: null, discoverySource: "my-courses", fallbackUsed: false, courseDiscovery: null, startedAt: Date.now(), error: null });
     if (!loading.ok) return loading;
     const navigated = worker.url === MOODLE_MY_COURSES ? worker : await tabsUpdate(worker.id, { url: MOODLE_MY_COURSES });
@@ -390,9 +389,9 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
   const workflow = await loadWorkflow();
   if (workflow.ok && workflow.workflow && workflow.workflow.workerTabId === tabId) await persistWorkflow(engine.workerClosed(workflow.workflow));
 });
-chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  if (changeInfo.status === "complete" && isMoodleUrl(tab && tab.url)) scanWorker(tabId);
-});
+// Normal navigation is driven by UIP_MOODLE_PAGE_READY after the content
+// script has observed the page long enough to avoid decisions on a partial DOM.
+// Direct scans are reserved for explicit engine effects and service-worker recovery.
 chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (!alarm) return;
   if (alarm.name === DISCOVERY_TIMEOUT_ALARM) { await expireDiscovery(); return; }
@@ -423,15 +422,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return undefined;
 });
 
-// Service workers can be reclaimed at any time. Restore the watchdog and
-// request one fresh DOM scan when a run was active before reclamation.
 loadWorkflow().then(async (result) => {
   if (!result.ok || !result.workflow || !["RUNNING", "LOGIN_REQUIRED"].includes(result.workflow.status)) return;
   await armWatchdog(result.workflow);
   if (Number.isInteger(result.workflow.workerTabId)) await scanWorker(result.workflow.workerTabId);
 }).catch(() => undefined);
-// A reclaimed service worker must retain the terminal discovery state or
-// restore its timeout, never restart Moodle navigation on its own.
 loadDiscovery().then(async (result) => {
   if (!result.ok) return;
   const startedAt = Number.isFinite(result.discovery.startedAt) ? result.discovery.startedAt : Date.now();
