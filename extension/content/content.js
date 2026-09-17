@@ -1,5 +1,7 @@
 /* Moodle executor: the background owns workflow decisions; this script owns DOM primitives. */
 let discoverySettlement = null;
+let workflowHydration = null;
+const WORKFLOW_HYDRATION_TIMEOUT_MS = 4500;
 
 function scanDiscoveryItems(kind) {
   const scan = globalThis.UIPScannerCore.scanDocument(document);
@@ -28,7 +30,6 @@ function beginDiscoverySettlement(message) {
     emitDiscoverySettlement(kind, requestId, initial.found ? "items-found" : "settled-empty", initial.scan);
     return { ok: true, settledImmediately: true };
   }
-  // Cards may be inserted outside the theme's initial dashboard region.
   const scope = (kind === "courses" ? document.body : globalThis.UIPScannerCore.findMainContent(document)) || document.documentElement;
   if (!scope || typeof MutationObserver !== "function") {
     emitDiscoverySettlement(kind, requestId, "settled-empty", initial.scan);
@@ -55,6 +56,76 @@ function beginDiscoverySettlement(message) {
   discoverySettlement.timer = setTimeout(() => finish("settled-empty"), 10000);
   return { ok: true };
 }
+
+function stopWorkflowHydration() {
+  if (!workflowHydration) return;
+  if (workflowHydration.timer) clearTimeout(workflowHydration.timer);
+  if (workflowHydration.debounce) clearTimeout(workflowHydration.debounce);
+  if (workflowHydration.observer) workflowHydration.observer.disconnect();
+  workflowHydration = null;
+}
+function workflowScanIsActionable(scan) {
+  if (!scan || typeof scan !== "object") return true;
+  if (scan.pageType === "SECTION") return Array.isArray(scan.feedback) && scan.feedback.length > 0;
+  if (scan.pageType === "FEEDBACK") {
+    if (scan.feedbackResult && scan.feedbackResult.submissionVerified === true) return true;
+    if (scan.feedbackResult && ["completed", "confirmation"].includes(scan.feedbackResult.state)) return true;
+    if (scan.feedbackSubmission && scan.feedbackSubmission.readyToSubmit === true) return true;
+    if (scan.feedbackForm && scan.feedbackForm.detected === true && scan.feedbackForm.canPrefill === true) return true;
+    if (scan.feedbackPage && scan.feedbackPage.canRespond === true && scan.feedbackPage.responseUrl) return true;
+    return false;
+  }
+  return true;
+}
+function emitWorkflowReady(scan, settled) {
+  const payload = { ...scan, workflowSettled: settled === true };
+  chrome.runtime.sendMessage({
+    type: "UIP_MOODLE_PAGE_READY",
+    scannerVersion: payload.scannerVersion,
+    pageType: payload.pageType,
+    scan: payload
+  }).catch(() => undefined);
+}
+function beginWorkflowHydration(initialScan) {
+  stopWorkflowHydration();
+  if (!initialScan || !["SECTION", "FEEDBACK"].includes(initialScan.pageType) || workflowScanIsActionable(initialScan)) {
+    emitWorkflowReady(initialScan, true);
+    return;
+  }
+  const scope = globalThis.UIPScannerCore.findMainContent(document) || document.body || document.documentElement;
+  if (!scope || typeof MutationObserver !== "function") {
+    emitWorkflowReady(initialScan, true);
+    return;
+  }
+  const initialUrl = document.location.href;
+  const finish = (scan) => {
+    if (!workflowHydration) return;
+    stopWorkflowHydration();
+    if (document.location.href === initialUrl) emitWorkflowReady(scan || globalThis.UIPScannerCore.scanDocument(document), true);
+  };
+  const inspect = () => {
+    if (!workflowHydration || document.location.href !== initialUrl) return;
+    const current = globalThis.UIPScannerCore.scanDocument(document);
+    if (workflowScanIsActionable(current)) finish(current);
+  };
+  const observer = new MutationObserver(() => {
+    if (!workflowHydration || workflowHydration.debounce) return;
+    workflowHydration.debounce = setTimeout(() => {
+      if (!workflowHydration) return;
+      workflowHydration.debounce = null;
+      inspect();
+    }, 120);
+  });
+  workflowHydration = { observer, timer: null, debounce: null };
+  observer.observe(scope, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ["class", "href", "disabled", "aria-disabled", "aria-hidden", "data-completion", "data-availability"]
+  });
+  workflowHydration.timer = setTimeout(() => finish(globalThis.UIPScannerCore.scanDocument(document)), WORKFLOW_HYDRATION_TIMEOUT_MS);
+}
+
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (!message) return undefined;
   if (message.type === "UIP_BEGIN_DISCOVERY_SETTLEMENT") {
@@ -174,15 +245,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   return false;
 });
 
-/* A page-ready signal lets the persistent engine continue after Moodle navigation. */
+/* For workflow pages, wait briefly for Moodle to finish hydrating the DOM before the engine decides. */
 try {
-  const readyScan = globalThis.UIPScannerCore.scanDocument(document);
-  chrome.runtime.sendMessage({
-    type: "UIP_MOODLE_PAGE_READY",
-    scannerVersion: readyScan.scannerVersion,
-    pageType: readyScan.pageType,
-    scan: readyScan
-  }).catch(() => undefined);
+  beginWorkflowHydration(globalThis.UIPScannerCore.scanDocument(document));
 } catch (_) {
   chrome.runtime.sendMessage({ type: "UIP_MOODLE_PAGE_READY", scannerVersion: globalThis.UIPScannerCore.VERSION, pageType: "OTHER" }).catch(() => undefined);
 }
